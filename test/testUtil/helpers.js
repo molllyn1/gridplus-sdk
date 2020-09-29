@@ -45,9 +45,13 @@ function setupTestClient(env) {
 
 function connect(client, id) {
   return new Promise((resolve) => {
-    client.connect(id, (err) => {
-      return resolve(err);
-    })
+    if(client != null){
+      client.connect(id, (err) => {
+        return resolve(err);
+      })
+    }
+    else
+      return null;
   })
 }
 

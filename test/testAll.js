@@ -8,9 +8,8 @@ let client, id;
 let caughtErr = false;
 
 describe('Connect and Pair', () => {
-
+  
   before(() => {
-    client = helpers.setupTestClient(process.env);
     if (process.env.DEVICE_ID)
       id = process.env.DEVICE_ID;
   });
@@ -19,43 +18,43 @@ describe('Connect and Pair', () => {
   //-------------------------------------------
   // TESTS
   //-------------------------------------------
+
   it('Should connect to a Lattice', async () => {
     // Again, we assume that if an `id` has already been set, we are paired
     // with the hardcoded privkey above.
     if (!process.env.DEVICE_ID) {
       const _id = question('Please enter the ID of your test device: ');
       id = _id;
-      const connectErr = await helpers.connect(client, id);
-      caughtErr = connectErr !== null;
-      expect(connectErr).to.equal(null);
-      expect(client.isPaired).to.equal(false);
-      expect(client.hasActiveWallet()).to.equal(false);
     }
   });
 
-  it('Should attempt to pair with pairing secret', async () => {
-    if (!process.env.DEVICE_ID) {
-      expect(caughtErr).to.equal(false);
-      if (caughtErr === false) {
-        const secret = question('Please enter the pairing secret: ');
-        const pairErr = await helpers.pair(client, secret);
-        caughtErr = pairErr !== null;
-        expect(pairErr).to.equal(null);
-        expect(client.hasActiveWallet()).to.equal(true);
-      }
-    }
-  });
+  const NUM_OF_PAIRINGS_TEST = 8;
+  for(let i = 0; i < NUM_OF_PAIRINGS_TEST; i++) {
+      it('Should attempt to pair with pairing secret', async () => {
+        client = helpers.setupTestClient(process.env);
+        client.name = client.name + ' ' + i;
+        connectErr = await helpers.connect(client, id);
+        expect(caughtErr).to.equal(false);
+        if (caughtErr === false) {
+          const secret = question('Please enter the pairing secret: ');
+          const pairErr = await helpers.pair(client, secret);
+          caughtErr = pairErr !== null;
+          expect(pairErr).to.equal(null);
+          expect(client.hasActiveWallet()).to.equal(true);
+        }
+      });
 
-  it('Should try to connect again but recognize the pairing already exists', async () => {
-    expect(caughtErr).to.equal(false);
-    if (caughtErr === false) {
-      const connectErr = await helpers.connect(client, id);
-      caughtErr = connectErr !== null;
-      expect(connectErr).to.equal(null);
-      expect(client.isPaired).to.equal(true);
-      expect(client.hasActiveWallet()).to.equal(true);
-    }
-  });
+      it('Should try to connect again but recognize the pairing already exists', async () => {
+        expect(caughtErr).to.equal(false);
+        if (caughtErr === false) {
+          const connectErr = await helpers.connect(client, id);
+          caughtErr = connectErr !== null;
+          expect(connectErr).to.equal(null);
+          expect(client.isPaired).to.equal(true);
+          expect(client.hasActiveWallet()).to.equal(true);
+        }
+      });
+  }
 
   it('Should get addresses', async () => {
     expect(caughtErr).to.equal(false);
