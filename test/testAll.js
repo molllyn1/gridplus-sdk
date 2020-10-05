@@ -82,18 +82,18 @@ describe('Connect and Pair', () => {
 
       // Bitcoin testnet
       addrData.startPath[0] = helpers.BTC_PURPOSE_P2SH_P2WPKH;
-      addrData.startPath[1] = helpers.BTC_TESTNET_COIN;
+      addrData.startPath[1] = helpers.BTC_COIN;
       addrData.n = 1;
       addrs = await helpers.getAddresses(client, addrData, 2000);
       expect(addrs.length).to.equal(1);
-      expect(addrs[0][0]).to.be.oneOf(['n', 'm', '2']);
+      expect(addrs[0][0]).to.be.oneOf(['1', '3']);
       addrData.startPath[1] = helpers.BTC_COIN;
       
       // --- EXPECTED FAILURES ---
       // Unsupported purpose (m/<purpose>/)
       addrData.startPath[0] = 0; // Purpose 0 -- undefined
       try {
-        addrs = await helpers.getAddresses(client, addrData, 2000);
+        addrs               = await helpers.getAddresses(client, addrData, 2000);
         expect(addrs).to.equal(null);
       } catch (err) {
         expect(err).to.not.equal(null);
@@ -244,16 +244,16 @@ describe('Connect and Pair', () => {
           txHash: '6e78493091f80d89a92ae3152df7fbfbdc44df09cf01a9b76c5113c02eaf2e0f',
           value: 10000,
           index: 1,
-          signerPath: [helpers.BTC_PURPOSE_P2SH_P2WPKH, helpers.BTC_TESTNET_COIN, HARDENED_OFFSET, 0, 0],
+          signerPath: [helpers.BTC_PURPOSE_P2SH_P2WPKH, helpers.BTC_COIN, HARDENED_OFFSET, 0, 0],
         },
       ],
       recipient: 'mhifA1DwiMPHTjSJM8FFSL8ibrzWaBCkVT',
       value: 1000,
       fee: 1000,
       isSegwit: false,
-      changePath: [helpers.BTC_PURPOSE_P2SH_P2WPKH, helpers.BTC_TESTNET_COIN, HARDENED_OFFSET, 1, 0],
-      changeVersion: 'TESTNET',  // Default 'LEGACY'
-      network: 'TESTNET',        // Default 'MAINNET'
+      changePath: [helpers.BTC_PURPOSE_P2SH_P2WPKH, helpers.BTC_COIN, HARDENED_OFFSET, 1, 0],
+      changeVersion: 'LEGACY',  // Default 'LEGACY'
+      network: 'MAINNET',        // Default 'MAINNET'
     };
     const req = {
       currency: 'BTC',
@@ -273,16 +273,16 @@ describe('Connect and Pair', () => {
           txHash: 'ab8288ef207f11186af98db115aa7120aa36ceb783e8792fb7b2f39c88109a99',
           value: 10000,
           index: 1,
-          signerPath: [helpers.BTC_PURPOSE_P2SH_P2WPKH, helpers.BTC_TESTNET_COIN, HARDENED_OFFSET, 0, 0],
+          signerPath: [helpers.BTC_PURPOSE_P2SH_P2WPKH, helpers.BTC_COIN, HARDENED_OFFSET, 0, 0],
         },
       ],
       recipient: '2NGZrVvZG92qGYqzTLjCAewvPZ7JE8S8VxE',
       value: 1000,
       fee: 1000,
       isSegwit: true,
-      changePath: [helpers.BTC_PURPOSE_P2SH_P2WPKH, helpers.BTC_TESTNET_COIN, HARDENED_OFFSET, 1, 0],
-      changeVersion: 'SEGWIT_TESTNET',  // Default 'LEGACY'
-      network: 'TESTNET',        // Default 'MAINNET'
+      changePath: [helpers.BTC_PURPOSE_P2SH_P2WPKH, helpers.BTC_COIN, HARDENED_OFFSET, 1, 0],
+      changeVersion: 'SEGWIT',  // Default 'LEGACY'
+      network: 'MAINNET',        // Default 'MAINNET'
     };
     const req = {
       currency: 'BTC',
