@@ -2,6 +2,7 @@
 // does not have browser (or, by proxy, React-Native) support.
 const Buffer = require('buffer/').Buffer
 const constants = require('./constants');
+const cbor = require('cbor-js');
 const keccak256 = require('js-sha3').keccak256;
 const rlp = require('rlp-browser');
 const secp256k1 = require('secp256k1');
@@ -15,42 +16,18 @@ exports.buildEthereumMsgRequest = function(input) {
     input, // Save the input for later
     msg: null, // Save the buffered message for later
   }
-  if (input.protocol === 'signPersonal') {
-    const L = ((input.signerPath.length + 1) * 4) + constants.ETH_MSG_MAX_SIZE + 4;
-    let off = 0;
-    req.payload = Buffer.alloc(L);
-    req.payload.writeUInt8(constants.ethMsgProtocol.SIGN_PERSONAL, 0); off += 1;
-    req.payload.writeUInt32LE(input.signerPath.length, off); off += 4;
-    for (let i = 0; i < input.signerPath.length; i++) {
-      req.payload.writeUInt32LE(input.signerPath[i], off); off += 4;
+
+  try {
+    switch (input.protocol) {
+      case 'signPersonal':
+        return buildPersonalSignRequest(req, input);
+      case 'eip712':
+        return buildEIP712Request(req, input);
+      default:
+        return { err: 'Unsupported protocol' }
     }
-    // Write the payload buffer. The payload can come in either as a buffer or as a string
-    let payload = input.payload;
-    // Determine if this is a hex string
-    let displayHex = false;
-    if (typeof input.payload === 'string') {
-      if (input.payload.slice(0, 2) === '0x') {
-        payload = ensureHexBuffer(input.payload)
-        displayHex = false === isASCII(payload.toString());
-      } else {
-        payload = Buffer.from(input.payload)
-      }
-    } else if (typeof input.displayHex === 'boolean') {
-      // If this is a buffer and the user has specified whether or not this
-      // is a hex buffer with the optional argument, write that
-      displayHex = input.displayHex
-    }
-    // Make sure we didn't run past the max size
-    if (payload.length > constants.ETH_MSG_MAX_SIZE)
-      throw new Error(`Your payload is ${payload.length} bytes, but can only be a maximum of ${constants.ETH_MSG_MAX_SIZE}`);
-    // Write the payload and metadata into our buffer
-    req.msg = payload;
-    req.payload.writeUInt8(displayHex, off); off += 1;
-    req.payload.writeUInt16LE(payload.length, off); off += 2;
-    payload.copy(req.payload, off);
-    return req;
-  } else {
-    throw new Error('Unsupported protocol');
+  } catch (err) {
+    return { err: err.message }
   }
 }
 
@@ -243,12 +220,24 @@ exports.hashTransaction = function(serializedTx) {
 
 // Ensure a param is represented by a buffer
 function ensureHexBuffer(x) {
-  if (x === null || x === 0) return Buffer.alloc(0);
-  else if (Buffer.isBuffer(x)) x = x.toString('hex');
-  if (typeof x === 'number') x = `${x.toString(16)}`;
-  else if (typeof x === 'string' && x.slice(0, 2) === '0x') x = x.slice(2);
-  if (x.length % 2 > 0) x = `0${x}`;
-  return Buffer.from(x, 'hex');
+  try {
+    // For null values, return a 0-sized buffer
+    if (x === null || x === 0) return Buffer.alloc(0);
+    // Otherwise try to get this converted to a hex string
+    if (Buffer.isBuffer(x)) {
+      x = `0x${x.toString('hex')}`;
+    } else if (typeof x === 'number') {
+      x = `${x.toString(16)}`;
+    } else if (typeof x === 'string' && x.slice(0, 2) === '0x') {
+      x = x.slice(2);
+    } else {
+      x = x.toString('hex')
+    }
+    if (x.length % 2 > 0) x = `0${x}`;
+    return Buffer.from(x, 'hex');
+  } catch (err) {
+    throw new Error(`Cannot convert ${x.toString()} to hex buffer (${err.toString()})`);
+  }
 }
 
 // Returns address string given public key buffer
@@ -299,5 +288,124 @@ const eip155 = {
   5: true
 }
 
+function buildPersonalSignRequest(req, input) {
+  const L = ((input.signerPath.length + 1) * 4) + constants.ETH_MSG_MAX_SIZE + 4;
+  let off = 0;
+  req.payload = Buffer.alloc(L);
+  req.payload.writeUInt8(constants.ethMsgProtocol.SIGN_PERSONAL.enumIdx, 0); off += 1;
+  req.payload.writeUInt32LE(input.signerPath.length, off); off += 4;
+  for (let i = 0; i < input.signerPath.length; i++) {
+    req.payload.writeUInt32LE(input.signerPath[i], off); off += 4;
+  }
+
+  // Write the payload buffer. The payload can come in either as a buffer or as a string
+  let payload = input.payload;
+  // Determine if this is a hex string
+  let displayHex = false;
+  if (typeof input.payload === 'string') {
+    if (input.payload.slice(0, 2) === '0x') {
+      payload = ensureHexBuffer(input.payload)
+      displayHex = false === isASCII(payload.toString());
+    } else {
+      payload = Buffer.from(input.payload)
+    }
+  } else if (typeof input.displayHex === 'boolean') {
+    // If this is a buffer and the user has specified whether or not this
+    // is a hex buffer with the optional argument, write that
+    displayHex = input.displayHex
+  }
+  // Make sure we didn't run past the max size
+  if (payload.length > constants.ETH_MSG_MAX_SIZE)
+    throw new Error(`Your payload is ${payload.length} bytes, but can only be a maximum of ${constants.ETH_MSG_MAX_SIZE}`);
+  // Write the payload and metadata into our buffer
+  req.msg = payload;
+  req.payload.writeUInt8(displayHex, off); off += 1;
+  req.payload.writeUInt16LE(payload.length, off); off += 2;
+  payload.copy(req.payload, off);
+  return req;
+}
+
+function buildEIP712Request(req, input) {
+  try {
+    const EIP712_CONST = constants.ethMsgProtocol.EIP712;
+    const data = input.payload;
+    if (!data.primaryType || !data.types[data.primaryType])
+      throw new Error('primaryType must be specified and the type must be included.')
+    if (!data.message || !data.domain)
+      throw new Error('message and domain must be specified.')
+    if (0 > Object.keys(data.types).indexOf('EIP712Domain'))
+      throw new Error('EIP712Domain type must be defined.')
+
+    // Parse the payload to ensure we have valid EIP712 data types and that
+    // they are encoded such that Lattice firmware can parse them.
+    const parsedMsg = parseEIP712Msg(data.message, data.primaryType, data.types);
+    data.message = parsedMsg;
+    const parsedDomain = parseEIP712Msg(data.domain, 'EIP712Domain', data.types);
+    data.domain = parsedDomain;
+    const buf = Buffer.from(cbor.encode(data));
+    if (buf.length > EIP712_CONST.rawDataMaxLen)
+      throw new Error(`Message too big (max ${EIP712_CONST.rawDataMaxLen} bytes, got ${buf.length}`);
+    
+    // Build the buffer
+    let off = 0;
+    req.payload = Buffer.alloc(constants.FIRMWARE_STRUCTS.encrypted.req.msgSz.sign);
+    req.payload.writeUInt8(EIP712_CONST.enumIdx, 0); off += 1;
+    req.payload.writeUInt32LE(input.signerPath.length, off); off += 4;
+    for (let i = 0; i < input.signerPath.length; i++) {
+      req.payload.writeUInt32LE(input.signerPath[i], off); off += 4;
+    }
+    req.payload.writeUInt16LE(buf.length, off); off += 2;
+    buf.copy(req.payload, off); off += buf.length;
+    // Slice out the part of the buffer that we didn't use.
+    req.payload = req.payload.slice(0, off);
+    return req;
+  } catch (err) {
+    return { err: `Failed to build signTypedData request: ${err.message}` };
+  }
+}
+
+function parseEIP712Msg(msg, typeName, types) {
+  try {
+    const type = types[typeName];
+    type.forEach((item) => {
+      const isCustomType = Object.keys(types).indexOf(item.type) > -1;
+      if (true === isCustomType) {
+        msg[item.name] = parseEIP712Msg(msg[item.name], item.type, types)
+      } else {
+        msg[item.name] = parseEIP712Item(msg[item.name], item.type)
+      }
+    })
+  } catch (err) {
+    throw new Error(`Failed to parse EIP712 struct: ${err.toString()}`);
+  }
+  return msg;
+}
+
+function parseEIP712Item(data, type) {
+  if (type === 'bytes') {
+    console.log(1, data)
+    // Variable sized bytes need to be buffer type
+    data = ensureHexBuffer(data);
+  } else if (type.slice(0, 5) === 'bytes') {
+    // Fixed sizes bytes need to be buffer type. We also add some sanity checks.
+    const nBytes = parseInt(type.slice(5));
+    data = ensureHexBuffer(data);
+    if (data.length !== nBytes)
+      throw new Error(`Expected ${type} type, but got ${nBytes} bytes`);
+  } else if (type === 'address') {
+    // Address must be a 20 byte buffer
+    data = ensureHexBuffer(data);
+    if (data.length !== 20)
+      throw new Error(`Address type must be 20 bytes, but got ${data.length} bytes`);
+  } else if (type === 'uint256') {
+    // Uint256 needs to be cast to a buffer so we can parse it properly in firmware
+    data = ensureHexBuffer(data)
+  } else if (type === 'bool') {
+    // Booleans need to be cast to a u8
+    data = data === true ? 1 : 0;
+  }
+  // Other types don't need to be modified
+  return data;
+}
 
 exports.chainIds = chainIds;

@@ -5,7 +5,7 @@ const Buffer = require('buffer/').Buffer
 const aes = require('aes-js');
 const crc32 = require('crc-32');
 const elliptic = require('elliptic');
-const { AES_IV, responseCodes, responseMsgs, VERSION_BYTE } = require('./constants');
+const { AES_IV, responseCodes, responseMsgs } = require('./constants');
 const EC = elliptic.ec;
 const ec = new EC('p256');
 
@@ -20,14 +20,7 @@ function parseLattice1Response(r) {
     data: null,
   }
   const b = Buffer.from(r, 'hex');
-  let off = 0;
-  
-  // Get protocol version
-  const protoVer = b.readUInt8(off); off++;
-  if (protoVer !== VERSION_BYTE) {
-    parsed.err = 'Incorrect protocol version. Please update your SDK';
-    return parsed;
-  }
+  let off = 1; // skip version byte
 
   // Get the type of response
   // Should always be 0x00

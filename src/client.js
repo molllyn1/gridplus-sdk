@@ -14,21 +14,21 @@ const {
 } = require('./util');
 const {
   ADDR_STR_LEN,
-  ENC_MSG_LEN,
-  decResLengths,
+  FIRMWARE_STRUCTS,
   deviceCodes,
   encReqCodes,
   responseCodes,
   REQUEST_TYPE_BYTE,
-  VERSION_BYTE,
+  loadFirmwareConstants,
   messageConstants,
   BASE_URL,
 } = require('./constants');
 const Buffer = require('buffer/').Buffer;
 const EMPTY_WALLET_UID = Buffer.alloc(32);
+const CURRENT_FW_VERSION = 1;
 
 class Client {
-  constructor({ baseUrl, crypto, name, privKey, timeout, retryCount } = {}) {
+  constructor({ baseUrl, crypto, name, privKey, timeout, retryCount, firmwareVersion } = {}) {
     // Definitions
     // if (!baseUrl) throw new Error('baseUrl is required');
     if (name && name.length > 24) throw new Error('name must be less than 24 characters');
@@ -49,6 +49,7 @@ class Client {
     this.deviceId = null;
     this.isPaired = false;
     this.retryCount = retryCount || 3;
+    this.firmwareVersion = firmwareVersion || CURRENT_FW_VERSION;
 
     // Information about the current wallet. Should be null unless we know a wallet is present
     this.activeWallets = {
@@ -65,6 +66,9 @@ class Client {
         external: true,
       }
     }
+
+    // Load the firmware constants using the known protocol version
+    loadFirmwareConstants(this.firmwareVersion);
   }
   
   //=======================================================================
@@ -142,7 +146,7 @@ class Client {
     const param = this._buildEncRequest(encReqCodes.TEST, payload);
     this._request(param, (err, res) => {
       if (err) return cb(err);
-      const decrypted = this._handleEncResponse(res, decResLengths.test);
+      const decrypted = this._handleEncResponse(res, FIRMWARE_STRUCTS.encrypted.res.msgSz.test);
       if (decrypted.err !== null ) 
         return cb(decrypted.err);
       return cb(null, decrypted.data.slice(65)); // remove ephem pub
@@ -190,17 +194,8 @@ class Client {
     // bad params, return an error instead
     const req = signReqResolver[currency](data);
     if (req.err !== undefined) return cb({ err: req.err });
-    // All transaction requests must be put into the same sized buffer
-    // so that checksums may be validated. The full size is 1266 bytes,
-    // but that includes a 1-byte prefix (`SIGN_TRANSACTION`), 2 bytes
-    // indicating the schema type, and 4 bytes for a checksum.
-    // Therefore, the payload itself has 1224 - 7 = 1217 bytes of space.
-    const MAX_SIGN_REQ_DATA_SIZE = 1152;
-    if (req.payload.length > MAX_SIGN_REQ_DATA_SIZE)
-      return cb('Transaction is too large');
-
     // Build the payload
-    const payload = Buffer.alloc(2 + MAX_SIGN_REQ_DATA_SIZE);
+    const payload = Buffer.alloc(FIRMWARE_STRUCTS.encrypted.req.msgSz.sign);
     let off = 0;
     // Copy request schema (e.g. ETH or BTC transfer)
     payload.writeUInt16BE(req.schema, off); off += 2;
@@ -291,7 +286,6 @@ class Client {
     const payloadPreCs = Buffer.concat([Buffer.from([enc_request_code]), payload]);
     const cs = checksum(payloadPreCs);
     const payloadBuf = Buffer.alloc(payloadPreCs.length + 4);
-
     // Lattice validates checksums in little endian
     payloadPreCs.copy(payloadBuf, 0);
     payloadBuf.writeUInt32LE(cs, payloadPreCs.length);
@@ -302,7 +296,7 @@ class Client {
     // Write to the overall payload. We must use the same length
     // for every encrypted request and must include a 32-bit ephemId
     // along with the encrypted data
-    const newPayload = Buffer.alloc(ENC_MSG_LEN + 4);
+    const newPayload = Buffer.alloc(FIRMWARE_STRUCTS.encrypted.totalSz + 4);
     // First 4 bytes are the ephemeral id (in little endian)
     newPayload.writeUInt32LE(ephemId, 0);
     // Next N bytes
@@ -326,7 +320,7 @@ class Client {
     let i = 0;
     const preReq = Buffer.alloc(L + 8);
     // Build the header
-    i = preReq.writeUInt8(VERSION_BYTE, i);
+    i = preReq.writeUInt8(this.firmwareVersion, i);
     i = preReq.writeUInt8(REQUEST_TYPE_BYTE, i);
     const id = this.crypto.randomBytes(4);
     i = preReq.writeUInt32BE(parseInt(`0x${id.toString('hex')}`), i);
@@ -370,7 +364,7 @@ class Client {
       if (isTimeout)
         return cb('Timeout waiting for device. Please ensure it is connected to the internet and try again in a minute.')
       else
-        return cb('Failed to make request to device.');
+        return cb(`Failed to make request to device: ${err.message}`);
     });
   }
 
@@ -399,7 +393,7 @@ class Client {
   _handleEncResponse(encRes, len) {
     // Decrypt response
     const secret = this._getSharedSecret();
-    const encData = encRes.slice(0, ENC_MSG_LEN);
+    const encData = encRes.slice(0, FIRMWARE_STRUCTS.encrypted.totalSz);
     const res = aes256_decrypt(encData, secret);
     // len does not include a 65-byte pubkey that prefies each encResponse
     len += 65;
@@ -426,7 +420,7 @@ class Client {
   // for the next request
   // @returns error (or null)
   _handlePair(encRes) {
-    const d = this._handleEncResponse(encRes, decResLengths.finalizePair);
+    const d = this._handleEncResponse(encRes, FIRMWARE_STRUCTS.encrypted.res.msgSz.finalizePair);
     if (d.err) return d.err;
     // Remove the pairing salt - we're paired!
     this.pairingSalt = null;
@@ -437,14 +431,14 @@ class Client {
   // GetAddresses will return an array of address strings
   _handleGetAddresses(encRes) {
     // Handle the encrypted response
-    const decrypted = this._handleEncResponse(encRes, decResLengths.getAddresses);
+    const decrypted = this._handleEncResponse(encRes, FIRMWARE_STRUCTS.encrypted.res.msgSz.getAddresses);
     if (decrypted.err !== null ) return decrypted;
 
     const addrData = decrypted.data;
     let off = 65; // Skip 65 byte pubkey prefix
     // Look for addresses until we reach the end (a 4 byte checksum)
     const addrs = [];
-    while (off + 4 < decResLengths.getAddresses) {
+    while (off + 4 < FIRMWARE_STRUCTS.encrypted.res.msgSz.getAddresses) {
       const addrBytes = addrData.slice(off, off+ADDR_STR_LEN); off += ADDR_STR_LEN;
       // Return the UTF-8 representation
       const len = addrBytes.indexOf(0); // First 0 is the null terminator
@@ -455,7 +449,7 @@ class Client {
   }
 
   _handleGetWallets(encRes) {
-    const decrypted = this._handleEncResponse(encRes, decResLengths.getWallets);
+    const decrypted = this._handleEncResponse(encRes, FIRMWARE_STRUCTS.encrypted.res.msgSz.getWallets);
     if (decrypted.err !== null) return decrypted;
     const res = decrypted.data;
     let walletUID;
@@ -494,7 +488,7 @@ class Client {
 
   _handleSign(encRes, currencyType, req=null) {
     // Handle the encrypted response
-    const decrypted = this._handleEncResponse(encRes, decResLengths.sign);
+    const decrypted = this._handleEncResponse(encRes, FIRMWARE_STRUCTS.encrypted.res.msgSz.sign);
     if (decrypted.err !== null ) return { err: decrypted.err };
     const PUBKEY_PREFIX_LEN = 65;
     const PKH_PREFIX_LEN = 20;
