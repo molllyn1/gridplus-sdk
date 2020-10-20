@@ -1,6 +1,5 @@
 // Utils for Ethereum transactions. This is effecitvely a shim of ethereumjs-util, which
 // does not have browser (or, by proxy, React-Native) support.
-const Buffer = require('buffer/').Buffer
 const constants = require('./constants');
 const keccak256 = require('js-sha3').keccak256;
 const rlp = require('rlp-browser');
@@ -15,42 +14,18 @@ exports.buildEthereumMsgRequest = function(input) {
     input, // Save the input for later
     msg: null, // Save the buffered message for later
   }
-  if (input.protocol === 'signPersonal') {
-    const L = ((input.signerPath.length + 1) * 4) + constants.ETH_MSG_MAX_SIZE + 4;
-    let off = 0;
-    req.payload = Buffer.alloc(L);
-    req.payload.writeUInt8(constants.ethMsgProtocol.SIGN_PERSONAL, 0); off += 1;
-    req.payload.writeUInt32LE(input.signerPath.length, off); off += 4;
-    for (let i = 0; i < input.signerPath.length; i++) {
-      req.payload.writeUInt32LE(input.signerPath[i], off); off += 4;
+
+  try {
+    switch (input.protocol) {
+      case 'signPersonal':
+        return buildPersonalSignRequest(req, input);
+      case 'signTypedData':
+        return buildSignTypedDataRequest(req, input);
+      default:
+        return { err: 'Unsupported protocol' }
     }
-    // Write the payload buffer. The payload can come in either as a buffer or as a string
-    let payload = input.payload;
-    // Determine if this is a hex string
-    let displayHex = false;
-    if (typeof input.payload === 'string') {
-      if (input.payload.slice(0, 2) === '0x') {
-        payload = ensureHexBuffer(input.payload)
-        displayHex = false === isASCII(payload.toString());
-      } else {
-        payload = Buffer.from(input.payload)
-      }
-    } else if (typeof input.displayHex === 'boolean') {
-      // If this is a buffer and the user has specified whether or not this
-      // is a hex buffer with the optional argument, write that
-      displayHex = input.displayHex
-    }
-    // Make sure we didn't run past the max size
-    if (payload.length > constants.ETH_MSG_MAX_SIZE)
-      throw new Error(`Your payload is ${payload.length} bytes, but can only be a maximum of ${constants.ETH_MSG_MAX_SIZE}`);
-    // Write the payload and metadata into our buffer
-    req.msg = payload;
-    req.payload.writeUInt8(displayHex, off); off += 1;
-    req.payload.writeUInt16LE(payload.length, off); off += 2;
-    payload.copy(req.payload, off);
-    return req;
-  } else {
-    throw new Error('Unsupported protocol');
+  } catch (err) {
+    return { err: err.message }
   }
 }
 
@@ -299,5 +274,225 @@ const eip155 = {
   5: true
 }
 
+function buildPersonalSignRequest(req, input) {
+  const L = ((input.signerPath.length + 1) * 4) + constants.ETH_MSG_MAX_SIZE + 4;
+  let off = 0;
+  req.payload = Buffer.alloc(L);
+  req.payload.writeUInt8(constants.ethMsgProtocol.SIGN_PERSONAL.enumIdx, 0); off += 1;
+  req.payload.writeUInt32LE(input.signerPath.length, off); off += 4;
+  for (let i = 0; i < input.signerPath.length; i++) {
+    req.payload.writeUInt32LE(input.signerPath[i], off); off += 4;
+  }
+  // Write the payload buffer. The payload can come in either as a buffer or as a string
+  let payload = input.payload;
+  // Determine if this is a hex string
+  let displayHex = false;
+  if (typeof input.payload === 'string') {
+    if (input.payload.slice(0, 2) === '0x') {
+      payload = ensureHexBuffer(input.payload)
+      displayHex = false === isASCII(payload.toString());
+    } else {
+      payload = Buffer.from(input.payload)
+    }
+  } else if (typeof input.displayHex === 'boolean') {
+    // If this is a buffer and the user has specified whether or not this
+    // is a hex buffer with the optional argument, write that
+    displayHex = input.displayHex
+  }
+  // Make sure we didn't run past the max size
+  if (payload.length > constants.ETH_MSG_MAX_SIZE)
+    throw new Error(`Your payload is ${payload.length} bytes, but can only be a maximum of ${constants.ETH_MSG_MAX_SIZE}`);
+  // Write the payload and metadata into our buffer
+  req.msg = payload;
+  req.payload.writeUInt8(displayHex, off); off += 1;
+  req.payload.writeUInt16LE(payload.length, off); off += 2;
+  payload.copy(req.payload, off);
+  return req;
+}
+
+function buildSignTypedDataRequest(req, input) {
+  try {
+    const data = input.payload;
+    if (!data.primaryType || !data.types[data.primaryType])
+      throw new Error('primaryType must be specified and the type must be included.')
+    if (!data.message || !data.domain)
+      throw new Error('message and domain must be specified.')
+
+    // Remove domain type if it was provided. This is not needed as we have a defined
+    // C struct to parse the domain data (so the data better fit!)
+    delete data.types.EIP712Domain;
+    // Build our buffer. We will fill a buffer of max size.
+    let off = 0;
+    // First write general ETH message stuff
+    req.payload = Buffer.alloc(constants.FIRMWARE_STRUCTS.encrypted.req.msgSz.sign);
+    req.payload.writeUInt8(constants.ethMsgProtocol.ETH_TYPED_DATA.enumIdx, 0); off += 1;
+    req.payload.writeUInt32LE(input.signerPath.length, off); off += 4;
+    for (let i = 0; i < input.signerPath.length; i++) {
+      req.payload.writeUInt32LE(input.signerPath[i], off); off += 4;
+    }
+    // 1. Serialize the domain first
+    req.payload.writeUInt8(parseInt(data.domain.version)); off++;
+    req.payload.writeUInt32LE(parseInt(data.domain.chainId)); off++;
+    req.payload.writeUInt8(data.domain.name.length);
+    const domainNameBuf = Buffer.alloc(constants.ethMsgProtocol.ETH_TYPED_DATA.nameMaxLen);
+    Buffer.from(data.domain.name).copy(domainNameBuf);
+    domainNameBuf.copy(req.payload, off); off += domainNameBuf.length;
+    const verifyingContract = ensureHexBuffer(data.domain.verifyingContract);
+    verifyingContract.copy(req.payload, off); off += verifyingContract.length;
+    // If there is a salt, record it. Create one otherwise.
+    const saltBuf = Buffer.alloc(32);
+    if (Buffer.isBuffer(data.domain.salt)) {
+      saltBuf.copy(req.payload, off); off += 32;
+    } else {
+      const saltPreImg = Buffer.concat([Buffer.from(new Date()), verifyingContract]);
+      const salt = Buffer.from(keccak256(saltPreImg), 'hex');
+      req.signTypedDataSalt = salt;
+      salt.copy(req.payload, off); off += 32;
+    }
+    // 2. Serialize the types
+    const typesArr = Object.keys(data.types);
+    if (typesArr > constants.ethMsgProtocol.ETH_TYPED_DATA.customTypesMaxNum)
+      throw new Error(`Only a maximum of ${constants.ethMsgProtocol.ETH_TYPED_DATA.customTypesMaxNum} custom types are currently allowed.`)
+    req.payload.writeUInt8(Object.keys(data.types).length + 1); off++; // The 1 accounts for the primary type
+    // Start with the primary type and splice it
+    let serializedType = _serializeCustomType(req.payload, data, data.primaryType);
+    serializedType.copy(req.payload, off); off += serializedType.length;
+    typesArr.splice(typesArr.indexOf(data.primaryType), 1);
+    // Now do the rest. It's fine that we spliced out the primary type because it is
+    // never designated as a subtype for any custom type.
+    for (let i = 0; i < typesArr.length; i++) {
+      serializedType = _serializeCustomType(req.payload, data, typesArr[i]);
+      serializedType.copy(req.payload, off); off += serializedType.length;
+    }
+    // 3. Serialize the values
+    const serializedValues = _serializeValues(data, data.message);
+    serializedValues.copy(req.payload, off); off += serializedValues.length;
+
+    // Slice out the part of the buffer that we didn't use.
+    req.payload = req.payload.slice(0, off);
+    return req;
+  } catch (err) {
+    return { err: `Failed to build signTypedData request: ${err.message}` };
+  }
+}
+
+function _serializeCustomType(req, data, key) {
+  let off = 0;
+  // Allocate a big buffer. We will slice off the unused portion before returning.
+  const _constants = constants.ethMsgProtocol.ETH_TYPED_DATA;
+  // type enum val (1 byte) + nameLen (1 byte) + name
+  const _subTypeSz = (2 + _constants.nameMaxLen); 
+  // num subtypes (1 bytes) + nameLen (1 byte) + name + subtypes
+  const _customTypeSz = (2 + _constants.nameMaxLen +  (_constants.subTypesMaxNum * _subTypeSz)); 
+  const buf = Buffer.alloc(_customTypeSz);
+  const type = data.types[key];
+  const typesArr = Object.keys(data.types);
+  // numSubTypes
+  buf.writeUInt8(type.length, off); off++;
+  // name of this type
+  buf.writeUInt16LE(key.length, off); off += 2;
+  Buffer.from(key).copy(buf, off); off += Buffer.from(key).length;
+  // Now write the sub types. These will usually be atomic/dynamic types but
+  // can also be user-defined (a.k.a. "custom")
+  type.forEach((subType) => {
+    // First write the type code (and whether this is a custom type)
+    let code;
+    if (typesArr.indexOf(subType.type) > -1) {
+      // If this is a custom type, mark it as such and include the index of the type.
+      buf.writeUInt8(1, off); off++; // Is a custom type
+      code = typesArr.indexOf(subType.type);
+    } else {
+      // If this is not a custom type, look for the atomic/dynamic type code.
+      buf.writeUInt8(0, off); off++; // Not a custom type
+      code = constants.ethMsgProtocol.ETH_TYPED_DATA.typeCodes[subType.type];
+      // If we can't find the type defined, throw an error here.
+      if (typeof code !== 'number')
+        throw new Error(`Could not find type: ${subType.type}`);
+    }
+    buf.writeUInt32LE(code, off); off += 4;
+    // Now the name (including length)
+    const name = Buffer.from(subType.name);
+    buf.writeUInt16LE(name.length, off); off += 2;
+    name.copy(buf, off); off += name.length;
+  })
+  if (off > _customTypeSz)
+    throw new Error(`Type ${key} too large. Name must be <20 char and only a max of 6 nested types are allowed.`)
+  return buf.slice(0, off);
+}
+
+function _serializeValues(data, msg, currentType=null) {
+  console.log('-------')
+  console.log('currentType', currentType)
+  console.log('msg', msg)
+  let off = 0;
+  // Allocate a big buffer. We will slice off the unused portion before returning.
+  const buf = Buffer.alloc(constants.ethMsgProtocol.ETH_TYPED_DATA.rawDataMaxLen);
+  const subMsg = currentType === null ? msg : msg[currentType.name];
+  console.log('subMsg', subMsg)
+  const type = currentType === null ? data.types[data.primaryType] : data.types[currentType.type];
+  const customTypesArr = Object.keys(data.types);
+  console.log('type', type)
+  type.forEach((subType) => {
+    console.log('subType', subType)
+    // If this is a custom type we recursively serialize that nested object first
+    if (customTypesArr.indexOf(subType.type) > -1) {
+      console.log('this is a defined subtype')
+      const subBuf = _serializeValues(data, subMsg[subType.name], subType);
+      subBuf.copy(buf, off); off += subBuf.length;
+    } else {
+      // Otherwise we encode this object based on the order of subTypes
+      console.log('encoding', subType.type, msg[subType.name])
+      const encVal = _encodeTypeValue(subType.type, msg[subType.name]);
+      encVal.copy(buf, off); off += encVal.length;
+    }
+  })
+  if (off > constants.ethMsgProtocol.ETH_TYPED_DATA.rawDataMaxLen)
+    throw new Error(`Too much data. Can only currently fit ${constants.ethMsgProtocol.ETH_TYPED_DATA.rawDataMaxLen} bytes, but got ${off}.`)
+  return buf.slice(0, off);
+}
+
+function _encodeTypeValue(type, msg) {
+  let buf;
+  switch (type) {
+    case 'bytes1':
+      buf = Buffer.alloc(1);
+      msg.copy(buf);
+      return buf;
+    case 'uint8':
+    case 'int8':
+      buf = Buffer.alloc(1);
+      Buffer.from([msg]).copy(buf);
+      return buf;
+    case 'bool':
+      buf = Buffer.alloc(1);
+      Buffer.from([msg === true ? 1 : 0]).copy(buf);
+      return buf;
+    case 'bytes32':
+      buf = Buffer.alloc(32);
+      msg.copy(buf);
+      return buf;
+    case 'uint256':
+    case 'int256':
+      buf = Buffer.alloc(32);
+      Buffer.from((msg).toString(16), 'hex').copy(buf);
+      return buf;
+    case 'address':
+      buf = Buffer.alloc(20);
+      ensureHexBuffer(msg).copy(buf);
+      return buf;
+    case 'bytes':
+      buf = Buffer.alloc(2 + msg.length);
+      buf.writeUInt16LE(msg.length);
+      msg.copy(buf, 2);
+      return buf;
+    case 'string':
+      buf = Buffer.alloc(2 + msg.length);
+      buf.writeUInt16LE(Buffer.from(msg).length)
+      Buffer.from(msg).copy(buf, 2)
+      return buf;
+    default:
+      throw new Error(`Cannot encode unknown type: ${type}`);
+  }
+}
 
 exports.chainIds = chainIds;

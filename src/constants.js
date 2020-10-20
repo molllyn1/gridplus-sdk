@@ -3,44 +3,66 @@ const AES_IV = [0x6d, 0x79, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x70, 0x61, 0x73
 
 const ADDR_STR_LEN = 129; // 128-char strings (null terminated)
 
-// Decrypted response lengths will be fixed for any given message type.
-// These are defined in the Lattice spec.
-// Every decrypted response should have a 65-byte pubkey prefixing it (and a 4-byte request ID)
-// These are NOT counted in `decResLengths`, meaning these values are 69-bytes smaller than the
-// corresponding structs in firmware.
-const decResLengths = {
-    finalizePair: 0,                    // Only contains the pubkey
-    getAddresses: 10 * ADDR_STR_LEN,    // 10x 129 byte strings (128 bytes + null terminator)
-    sign: 1090,                         // 1 DER signature for ETH, 10 for BTC + change pubkeyhash
-    getWallets: 142,                    // 71 bytes per wallet record (response contains internal and external)
-    test: 1646                          // Max size of test response payload
+
+// Information about C structs in Lattice firmware. Note that these values do NOT
+// include 
+const FIRMWARE_STRUCTS = {
+    encrypted: {
+        req: {
+            msgSz: {    // Lengths of encrypted request structs
+                        // NOTE: Only `sign` is provided here because it may be larger than the largest res sizes
+                        //       and thus may affect ENC_MSG_LEN. All other requests are small so they do not need 
+                        //       to be listed here.
+                sign: 1774,
+            },
+            extraDataSz: 5, // Extra data INSIDE decrypted request: requestType (1 byte) + checksum (4 bytes)
+
+        },
+        res: {  // Members of GpDecryptedResponse_t; does NOT include `ephemKey` and `checksum` (see `extraDataInside`) 
+            msgSz: {                                // Lengths of encrypted response structs
+                finalizePair: 0,                    // Only contains the pubkey
+                getAddresses: 10 * ADDR_STR_LEN,    // 10x 129 byte strings (128 bytes + null terminator)
+                sign: 1090,                         // 1 DER signature for ETH, 10 for BTC + change pubkeyhash
+                getWallets: 142,                    // 71 bytes per wallet record (response contains internal and external)
+                test: 1646                          // Max size of test response payload
+            },
+            extraDataSz: 69,    // Extra data INSIDE decrypted response: pubkey (65 bytes) + checksum (4 bytes)
+        },
+        metaData: 13,   // Header data OUTSIDE decrypted message;
+                        // Prefix:
+                        // * protocol version (1 byte)
+                        // * response type, reserved (1 byte) -- not used
+                        // * response id (4 bytes) -- not used
+                        // * payload length (2 bytes)
+                        // * response code (1 byte)
+                        // Suffix:
+                        // * checksum (4 bytes) -- NOT the same checksum as inside the decrypted msg
+        totalSz: 0,     // Calculated when this file is loaded
+    }
 }
 
-// Every corresponding decrypted response struct in firmware has a pubkey
-// and checksum added. These are not included in `decResLengths`
-const DES_RES_EXTRADATA_LEN = 69; 
+function calcTotalSz() {
+    let maxMsgSz = 0;
+    const metaDataSz = FIRMWARE_STRUCTS.encrypted.metaData;
+    const reqExtraDataSz = FIRMWARE_STRUCTS.encrypted.req.extraDataSz;
+    const resExtraDataSz = FIRMWARE_STRUCTS.encrypted.res.extraDataSz;
+    Object.keys(FIRMWARE_STRUCTS.encrypted.req.msgSz).forEach((k) => {
+        const sz = FIRMWARE_STRUCTS.encrypted.req.msgSz[k];
+        if (sz + reqExtraDataSz > maxMsgSz)
+            maxMsgSz = sz + reqExtraDataSz;
+    })
+    Object.keys(FIRMWARE_STRUCTS.encrypted.res.msgSz).forEach((k) => {
+        const sz = FIRMWARE_STRUCTS.encrypted.res.msgSz[k];
+        if (sz + resExtraDataSz > maxMsgSz)
+            maxMsgSz = sz + resExtraDataSz;
+    })
+    return maxMsgSz + metaDataSz;
+}
 
-// Encrypted responses also have metadata
-// Prefix:
-// * protocol version (1 byte)
-// * response type, reserved (1 byte) -- not used
-// * response id (4 bytes) -- not used
-// * payload length (2 bytes)
-// * response code (1 byte)
-// Suffix:
-// * checksum (4 bytes) -- NOT the same checksum as inside the decrypted msg
-const ENC_MSG_METADATA_LEN = 13;
+// Calculate the total encrypted message size
+FIRMWARE_STRUCTS.encrypted.totalSz = calcTotalSz();
+console.log(FIRMWARE_STRUCTS)
 
-const ENC_MSG_EXTRA_LEN = DES_RES_EXTRADATA_LEN + ENC_MSG_METADATA_LEN;
-// Per Lattice spec, all encrypted messages must fit in a buffer of this size.
-// The length comes from the largest request/response data type size
-// We also add the prefix length
-let ENC_MSG_LEN = 0;
-Object.keys(decResLengths).forEach((k) => {
-    if (decResLengths[k] + ENC_MSG_EXTRA_LEN > ENC_MSG_LEN)
-        ENC_MSG_LEN = decResLengths[k] + ENC_MSG_EXTRA_LEN;
-})
-  
 const deviceCodes = {
     'CONNECT': 1,
     'ENCRYPTED_REQUEST': 2,
@@ -108,7 +130,28 @@ const signingSchema = {
 }
 
 const ethMsgProtocol = {
-    SIGN_PERSONAL: 0,
+    SIGN_PERSONAL: {
+        enumIdx: 0,           // Enum index of this protocol in Lattice firmware
+    },
+    ETH_TYPED_DATA: {
+        enumIdx: 1,           // Enum index of this protocol in Lattice firmware
+        nameMaxLen: 20,       // Max number of characters for param name
+        rawDataMaxLen: 1024,  // Max size of raw data payload in bytes
+        subTypesMaxNum: 6,    // Number of subTypes that may be included in a custom type
+        customTypesMaxNum: 3, // Max number of custom types in message (*including* primaryType)
+        typeCodes: {          // Enum indices of data types in Lattice firmware
+            'bytes1': 0,
+            'bytes32': 1,
+            'uint8': 2,
+            'uint256': 3,
+            'int8': 4,
+            'int256': 5,
+            'bool': 6,
+            'address': 7,
+            'bytes': 9,
+            'string': 10,
+        }
+    },
 }
 
 const ETH_DATA_MAX_SIZE = 1024; // Maximum number of bytes that can go in the data field
@@ -123,9 +166,7 @@ module.exports = {
     ADDR_STR_LEN,
     AES_IV,
     BASE_URL,
-    ENC_MSG_LEN,
     addressSizes,
-    decResLengths,
     deviceCodes,
     encReqCodes,
     ethMsgProtocol,
@@ -138,4 +179,5 @@ module.exports = {
     REQUEST_TYPE_BYTE,
     VERSION_BYTE,
     HARDENED_OFFSET,
+    FIRMWARE_STRUCTS,
 }
