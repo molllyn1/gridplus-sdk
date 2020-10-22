@@ -1,4 +1,4 @@
-const flog = require('./firmwareLog.json');
+const fwConst = require('./fwConsts.json');
 
 // Information about C structs in Lattice firmware.
 // !! NOTE: The comments are based on v1 values! See `firmwareLog.json` for the values that correspond
@@ -39,7 +39,7 @@ const FIRMWARE_STRUCTS = {
 }
 
 function loadFirmwareConstants(version) {
-    const vals = flog[version]; 
+    const vals = fwConst[version]; 
     FIRMWARE_STRUCTS.encrypted.req.msgSz.sign = vals.encMsgSz.req.sign;
     FIRMWARE_STRUCTS.encrypted.req.extraDataSz = vals.encMsgSz.req.extraDataSz;
     FIRMWARE_STRUCTS.encrypted.res.msgSz.finalizePair = vals.encMsgSz.res.finalizePair;

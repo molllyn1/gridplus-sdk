@@ -25,7 +25,7 @@ const {
 } = require('./constants');
 const Buffer = require('buffer/').Buffer;
 const EMPTY_WALLET_UID = Buffer.alloc(32);
-const CURRENT_FW_VERSION = 2;
+const CURRENT_FW_VERSION = 1;
 
 class Client {
   constructor({ baseUrl, crypto, name, privKey, timeout, retryCount, firmwareVersion } = {}) {
@@ -347,14 +347,6 @@ class Client {
       if (!res || !res.body) return cb(`Invalid response: ${res}`)
       else if (res.body.status !== 200) return cb(`Error code ${res.body.status}: ${res.body.message}`)
       const parsed = parseLattice1Response(res.body.message);
-      console.log('parsed', parsed)
-      // If the firmware version is unsupported, bring it down and try again
-      if (parsed.responseCode === responseCodes.RESP_ERR_UNSUPPORTED_VER && this.firmwareVersion > 1) {
-        console.log('bumping version down')
-        this.firmwareVersion--;
-        loadFirmwareConstants(this.firmwareVersion);
-        return this._request(data, cb, retryCount);
-      }
       // If the device is busy, retry if we can
       if (( parsed.responseCode === responseCodes.RESP_ERR_DEV_BUSY ||
             parsed.responseCode === responseCodes.RESP_ERR_GCE_TIMEOUT ) 
