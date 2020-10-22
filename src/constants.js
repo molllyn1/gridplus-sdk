@@ -1,11 +1,8 @@
-// Consistent with Lattice's IV
-const AES_IV = [0x6d, 0x79, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64]
+const flog = require('./firmwareLog.json');
 
-const ADDR_STR_LEN = 129; // 128-char strings (null terminated)
-
-
-// Information about C structs in Lattice firmware. Note that these values do NOT
-// include 
+// Information about C structs in Lattice firmware.
+// !! NOTE: The comments are based on v1 values! See `firmwareLog.json` for the values that correspond
+// to each protocol version. !!
 const FIRMWARE_STRUCTS = {
     encrypted: {
         req: {
@@ -13,22 +10,22 @@ const FIRMWARE_STRUCTS = {
                         // NOTE: Only `sign` is provided here because it may be larger than the largest res sizes
                         //       and thus may affect ENC_MSG_LEN. All other requests are small so they do not need 
                         //       to be listed here.
-                sign: 1774,
+                sign: 0,
             },
-            extraDataSz: 5, // Extra data INSIDE decrypted request: requestType (1 byte) + checksum (4 bytes)
+            extraDataSz: 0, // Extra data INSIDE decrypted request: requestType (1 byte) + checksum (4 bytes)
 
         },
         res: {  // Members of GpDecryptedResponse_t; does NOT include `ephemKey` and `checksum` (see `extraDataInside`) 
             msgSz: {                                // Lengths of encrypted response structs
                 finalizePair: 0,                    // Only contains the pubkey
-                getAddresses: 10 * ADDR_STR_LEN,    // 10x 129 byte strings (128 bytes + null terminator)
-                sign: 1090,                         // 1 DER signature for ETH, 10 for BTC + change pubkeyhash
-                getWallets: 142,                    // 71 bytes per wallet record (response contains internal and external)
-                test: 1646                          // Max size of test response payload
+                getAddresses: 0,                    // 10x 129 byte strings (128 bytes + null terminator)
+                sign: 0,                            // 1 DER signature for ETH, 10 for BTC + change pubkeyhash
+                getWallets: 0,                      // 71 bytes per wallet record (response contains internal and external)
+                test: 0                             // Max size of test response payload
             },
-            extraDataSz: 69,    // Extra data INSIDE decrypted response: pubkey (65 bytes) + checksum (4 bytes)
+            extraDataSz: 0, // Extra data INSIDE decrypted response: pubkey (65 bytes) + checksum (4 bytes)
         },
-        metaData: 13,   // Header data OUTSIDE decrypted message;
+        metaData: 0,    // Header data OUTSIDE decrypted message;
                         // Prefix:
                         // * protocol version (1 byte)
                         // * response type, reserved (1 byte) -- not used
@@ -41,7 +38,18 @@ const FIRMWARE_STRUCTS = {
     }
 }
 
-function calcTotalSz() {
+function loadFirmwareConstants(version) {
+    const vals = flog[version]; 
+    FIRMWARE_STRUCTS.encrypted.req.msgSz.sign = vals.encMsgSz.req.sign;
+    FIRMWARE_STRUCTS.encrypted.req.extraDataSz = vals.encMsgSz.req.extraDataSz;
+    FIRMWARE_STRUCTS.encrypted.res.msgSz.finalizePair = vals.encMsgSz.res.finalizePair;
+    FIRMWARE_STRUCTS.encrypted.res.msgSz.getAddresses = vals.encMsgSz.res.getAddresses;
+    FIRMWARE_STRUCTS.encrypted.res.msgSz.sign = vals.encMsgSz.res.sign;
+    FIRMWARE_STRUCTS.encrypted.res.msgSz.getWallets = vals.encMsgSz.res.getWallets;
+    FIRMWARE_STRUCTS.encrypted.res.msgSz.test = vals.encMsgSz.res.test;
+    FIRMWARE_STRUCTS.encrypted.res.extraDataSz = vals.encMsgSz.res.extraDataSz;
+    FIRMWARE_STRUCTS.encrypted.metaData = vals.encMsgSz.metaDataSz;
+
     let maxMsgSz = 0;
     const metaDataSz = FIRMWARE_STRUCTS.encrypted.metaData;
     const reqExtraDataSz = FIRMWARE_STRUCTS.encrypted.req.extraDataSz;
@@ -56,12 +64,9 @@ function calcTotalSz() {
         if (sz + resExtraDataSz > maxMsgSz)
             maxMsgSz = sz + resExtraDataSz;
     })
-    return maxMsgSz + metaDataSz;
+    FIRMWARE_STRUCTS.encrypted.totalSz = maxMsgSz + metaDataSz;
+    console.log('loaded structs', FIRMWARE_STRUCTS)
 }
-
-// Calculate the total encrypted message size
-FIRMWARE_STRUCTS.encrypted.totalSz = calcTotalSz();
-console.log(FIRMWARE_STRUCTS)
 
 const deviceCodes = {
     'CONNECT': 1,
@@ -154,10 +159,12 @@ const ethMsgProtocol = {
     },
 }
 
+// Consistent with Lattice's IV
+const AES_IV = [0x6d, 0x79, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64]
+const ADDR_STR_LEN = 129; // 128-char strings (null terminated)
 const ETH_DATA_MAX_SIZE = 1024; // Maximum number of bytes that can go in the data field
 const ETH_MSG_MAX_SIZE = 1024; // Maximum number of bytes that can be used in a message signing request
 const REQUEST_TYPE_BYTE = 0x02; // For all HSM-bound requests
-const VERSION_BYTE = 1;
 const HARDENED_OFFSET = 0x80000000; // Hardened offset
 
 const BASE_URL = 'https://signing.gridpl.us';
@@ -174,10 +181,10 @@ module.exports = {
     responseCodes,
     responseMsgs,
     signingSchema,
+    loadFirmwareConstants,
     ETH_DATA_MAX_SIZE,
     ETH_MSG_MAX_SIZE,
     REQUEST_TYPE_BYTE,
-    VERSION_BYTE,
     HARDENED_OFFSET,
     FIRMWARE_STRUCTS,
 }

@@ -19,15 +19,16 @@ const {
   encReqCodes,
   responseCodes,
   REQUEST_TYPE_BYTE,
-  VERSION_BYTE,
+  loadFirmwareConstants,
   messageConstants,
   BASE_URL,
 } = require('./constants');
 const Buffer = require('buffer/').Buffer;
 const EMPTY_WALLET_UID = Buffer.alloc(32);
+const CURRENT_FW_VERSION = 2;
 
 class Client {
-  constructor({ baseUrl, crypto, name, privKey, timeout, retryCount } = {}) {
+  constructor({ baseUrl, crypto, name, privKey, timeout, retryCount, firmwareVersion } = {}) {
     // Definitions
     // if (!baseUrl) throw new Error('baseUrl is required');
     if (name && name.length > 24) throw new Error('name must be less than 24 characters');
@@ -48,6 +49,7 @@ class Client {
     this.deviceId = null;
     this.isPaired = false;
     this.retryCount = retryCount || 3;
+    this.firmwareVersion = firmwareVersion || CURRENT_FW_VERSION;
 
     // Information about the current wallet. Should be null unless we know a wallet is present
     this.activeWallets = {
@@ -64,6 +66,9 @@ class Client {
         external: true,
       }
     }
+
+    // Load the firmware constants using the known protocol version
+    loadFirmwareConstants(this.firmwareVersion);
   }
   
   //=======================================================================
@@ -317,7 +322,7 @@ class Client {
     let i = 0;
     const preReq = Buffer.alloc(L + 8);
     // Build the header
-    i = preReq.writeUInt8(VERSION_BYTE, i);
+    i = preReq.writeUInt8(this.firmwareVersion, i);
     i = preReq.writeUInt8(REQUEST_TYPE_BYTE, i);
     const id = this.crypto.randomBytes(4);
     i = preReq.writeUInt32BE(parseInt(`0x${id.toString('hex')}`), i);
@@ -342,6 +347,14 @@ class Client {
       if (!res || !res.body) return cb(`Invalid response: ${res}`)
       else if (res.body.status !== 200) return cb(`Error code ${res.body.status}: ${res.body.message}`)
       const parsed = parseLattice1Response(res.body.message);
+      console.log('parsed', parsed)
+      // If the firmware version is unsupported, bring it down and try again
+      if (parsed.responseCode === responseCodes.RESP_ERR_UNSUPPORTED_VER && this.firmwareVersion > 1) {
+        console.log('bumping version down')
+        this.firmwareVersion--;
+        loadFirmwareConstants(this.firmwareVersion);
+        return this._request(data, cb, retryCount);
+      }
       // If the device is busy, retry if we can
       if (( parsed.responseCode === responseCodes.RESP_ERR_DEV_BUSY ||
             parsed.responseCode === responseCodes.RESP_ERR_GCE_TIMEOUT ) 
