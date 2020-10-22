@@ -1,5 +1,6 @@
 // Utils for Ethereum transactions. This is effecitvely a shim of ethereumjs-util, which
 // does not have browser (or, by proxy, React-Native) support.
+const Buffer = require('buffer/').Buffer
 const constants = require('./constants');
 const keccak256 = require('js-sha3').keccak256;
 const rlp = require('rlp-browser');

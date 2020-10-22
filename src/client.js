@@ -366,7 +366,7 @@ class Client {
       if (isTimeout)
         return cb('Timeout waiting for device. Please ensure it is connected to the internet and try again in a minute.')
       else
-        return cb('Failed to make request to device.');
+        return cb(`Failed to make request to device: ${err.message}`);
     });
   }
 
