@@ -359,42 +359,54 @@ function buildSignTypedDataRequest(req, input) {
       salt.copy(req.payload, off); off += 32;
     }
 
+    // Now we will write a freeform buffer to allow for flexibility in type definitions.
+    // The data is serialized like this:
+    // | offsets | types | values
+
     // 2. Reserve space for type/values offsets. Each value is a u16. We will write the offsets later
     const typesArr = Object.keys(data.types);
     const numCustomTypes = typesArr.length;
-    const typeOffsets = Buffer.alloc(2 * numCustomTypes);
+    // Allocate space for the type and value offsets. Each custom type will gets its own u16 offset
+    // and the last offset corresponds to the location of the value data.
+    const offsets = Buffer.alloc(2 * (numCustomTypes + 1));
     // Write the number of custom types and move on to defining the types
     req.payload.writeUInt8(numCustomTypes, off); off++;
-    const rawDataOff = off;
+    // Add space for the offsets
+    const rawDataStart = off;
+    off += offsets.length;
 
     // 3. Serialize the types
-    let dataOff = 0; // Track where we are in the data buffer so we can write offsets
+    let dataOff = offsets.length; // Track where we are in the data buffer so we can write offsets
     if (typesArr > T_CONST.customTypesMaxNum)
       throw new Error(`Only a maximum of ${T_CONST.customTypesMaxNum} custom types are currently allowed.`)
-    
     // Start with the primary type and splice it
-    typeOffsets.writeUInt16LE(dataOff, 0);
+    offsets.writeUInt16LE(dataOff, 0);
     let serializedType = _serializeCustomType(req.payload, data, data.primaryType);
     serializedType.copy(req.payload, off); off += serializedType.length; 
     dataOff += serializedType.length;
     // Splice out the primary type since it cannot be referenced by lower types
     typesArr.splice(typesArr.indexOf(data.primaryType), 1);
-
     // Now do the rest. Do not splice these, as they can theoretically reference each other.
     for (let i = 0; i < typesArr.length; i++) {
-      typeOffsets.writeUInt16LE(dataOff, 2*(i+1));
+      offsets.writeUInt16LE(dataOff, 2*(i+1));
       serializedType = _serializeCustomType(req.payload, data, typesArr[i]);
       serializedType.copy(req.payload, off); off += serializedType.length; 
       dataOff += serializedType.length;
     }
-    // 4. Serialize the values
+
+    // 4. Add the type offsets in
+    // Write the values offset
+    offsets.writeUInt16LE(dataOff, offsets.length - 2);
+    offsets.copy(req.payload, rawDataStart);
+
+    // 5. Serialize the values
     // First capture the starting index of the values in our data buffer
-    req.payload.writeUInt16LE(dataOff, off); off +=2;
     // Now serialize and write the values themselves
     const serializedValues = _serializeValues(data, data.message);
     serializedValues.copy(req.payload, off); off += serializedValues.length;
-    if (off - rawDataOff > T_CONST.rawDataMaxLen)
-      throw new Error(`Type definitions + data is too large. Got ${off-rawDataOff} bytes; need <${T_CONST.rawDataMaxLen} bytes`);
+    // Sanity check, slice off extra, and return
+    if (off - rawDataStart > T_CONST.rawDataMaxLen)
+      throw new Error(`Type definitions + data is too large. Got ${off-rawDataStart} bytes; need <${T_CONST.rawDataMaxLen} bytes`);
     // Slice out the part of the buffer that we didn't use.
     req.payload = req.payload.slice(0, off);
     return req;
@@ -413,62 +425,62 @@ function _serializeCustomType(req, data, key) {
   const _customTypeSz = (2 + _constants.nameMaxLen +  (_constants.subTypesMaxNum * _subTypeSz)); 
   const buf = Buffer.alloc(_customTypeSz);
   const type = data.types[key];
-  const typesArr = Object.keys(data.types);
-  // numSubTypes
-  buf.writeUInt8(type.length, off); off++;
+  // Build a type name array. The primary type must be the first index (although we won't
+  // use it). This is used to look up custom type names for subTypes
+  const primaryTypeName = data.primaryType;
+  let typesArr = Object.keys(data.types);
+  typesArr.splice(typesArr.indexOf(primaryTypeName), 1);
+  typesArr = [primaryTypeName].concat(typesArr);
+
+  // We can now start serializing data!
   // name of this type
   if (key.length > constants.ethMsgProtocol.ETH_TYPED_DATA.nameMaxLen)
     throw new Error(`Parameter names must be 12 characters or fewer (${key}=${key.length})`);
-  buf.writeUInt16LE(key.length, off); off += 2;
+  buf.writeUInt8(key.length, off); off ++;
   Buffer.from(key).copy(buf, off); off += Buffer.from(key).length;
+  // numSubTypes
+  buf.writeUInt8(type.length, off); off++;
   // Now write the sub types. These will usually be atomic/dynamic types but
   // can also be user-defined (a.k.a. "custom")
   type.forEach((subType) => {
     // First write the type code (and whether this is a custom type)
-    let code;
     if (typesArr.indexOf(subType.type) > -1) {
       // If this is a custom type, mark it as such and include the index of the type.
       buf.writeUInt8(1, off); off++; // Is a custom type
-      code = typesArr.indexOf(subType.type);
+      // For custom type, we do not need to write the name. 
+      // It will be referenced by the following index:
+      buf.writeUInt32LE(typesArr.indexOf(subType.type), off); off += 4;
     } else {
       // If this is not a custom type, look for the atomic/dynamic type code.
       buf.writeUInt8(0, off); off++; // Not a custom type
-      code = constants.ethMsgProtocol.ETH_TYPED_DATA.typeCodes[subType.type];
+      const code = constants.ethMsgProtocol.ETH_TYPED_DATA.typeCodes[subType.type];
       // If we can't find the type defined, throw an error here.
       if (typeof code !== 'number')
         throw new Error(`Could not find type: ${subType.type}`);
+      buf.writeUInt32LE(code, off); off += 4;
     }
-    buf.writeUInt32LE(code, off); off += 4;
     // Now the name (including length)
     const name = Buffer.from(subType.name);
-    buf.writeUInt16LE(name.length, off); off += 2;
+    buf.writeUInt8(name.length, off); off ++;
     name.copy(buf, off); off += name.length;
   })
   return buf.slice(0, off);
 }
 
 function _serializeValues(data, msg, currentType=null) {
-  // console.log('-------')
-  // console.log('currentType', currentType)
-  // console.log('msg', msg)
   let off = 0;
   // Allocate a big buffer. We will slice off the unused portion before returning.
   const buf = Buffer.alloc(constants.ethMsgProtocol.ETH_TYPED_DATA.rawDataMaxLen);
   const subMsg = currentType === null ? msg : msg[currentType.name];
-  // console.log('subMsg', subMsg)
   const type = currentType === null ? data.types[data.primaryType] : data.types[currentType.type];
   const customTypesArr = Object.keys(data.types);
-  // console.log('type', type)
   type.forEach((subType) => {
-    // console.log('subType', subType)
     // If this is a custom type we recursively serialize that nested object first
     if (customTypesArr.indexOf(subType.type) > -1) {
-      // console.log('this is a defined subtype')
       const subBuf = _serializeValues(data, subMsg[subType.name], subType);
       subBuf.copy(buf, off); off += subBuf.length;
     } else {
       // Otherwise we encode this object based on the order of subTypes
-      // console.log('encoding', subType.type, msg[subType.name])
       const encVal = _encodeTypeValue(subType.type, msg[subType.name]);
       encVal.copy(buf, off); off += encVal.length;
     }

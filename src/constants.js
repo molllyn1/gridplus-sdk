@@ -65,7 +65,6 @@ function loadFirmwareConstants(version) {
             maxMsgSz = sz + resExtraDataSz;
     })
     FIRMWARE_STRUCTS.encrypted.totalSz = maxMsgSz + metaDataSz;
-    console.log('loaded structs', FIRMWARE_STRUCTS)
 }
 
 const deviceCodes = {
