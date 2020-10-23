@@ -194,7 +194,6 @@ class Client {
     // bad params, return an error instead
     const req = signReqResolver[currency](data);
     if (req.err !== undefined) return cb({ err: req.err });
-
     // Build the payload
     const payload = Buffer.alloc(FIRMWARE_STRUCTS.encrypted.req.msgSz.sign);
     let off = 0;
@@ -287,7 +286,6 @@ class Client {
     const payloadPreCs = Buffer.concat([Buffer.from([enc_request_code]), payload]);
     const cs = checksum(payloadPreCs);
     const payloadBuf = Buffer.alloc(payloadPreCs.length + 4);
-
     // Lattice validates checksums in little endian
     payloadPreCs.copy(payloadBuf, 0);
     payloadBuf.writeUInt32LE(cs, payloadPreCs.length);

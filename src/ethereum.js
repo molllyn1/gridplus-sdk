@@ -284,6 +284,7 @@ function buildPersonalSignRequest(req, input) {
   for (let i = 0; i < input.signerPath.length; i++) {
     req.payload.writeUInt32LE(input.signerPath[i], off); off += 4;
   }
+
   // Write the payload buffer. The payload can come in either as a buffer or as a string
   let payload = input.payload;
   // Determine if this is a hex string
@@ -313,6 +314,7 @@ function buildPersonalSignRequest(req, input) {
 
 function buildSignTypedDataRequest(req, input) {
   try {
+    const T_CONST = constants.ethMsgProtocol.ETH_TYPED_DATA;
     const data = input.payload;
     if (!data.primaryType || !data.types[data.primaryType])
       throw new Error('primaryType must be specified and the type must be included.')
@@ -326,49 +328,73 @@ function buildSignTypedDataRequest(req, input) {
     let off = 0;
     // First write general ETH message stuff
     req.payload = Buffer.alloc(constants.FIRMWARE_STRUCTS.encrypted.req.msgSz.sign);
-    req.payload.writeUInt8(constants.ethMsgProtocol.ETH_TYPED_DATA.enumIdx, 0); off += 1;
+    req.payload.writeUInt8(T_CONST.enumIdx, 0); off += 1;
     req.payload.writeUInt32LE(input.signerPath.length, off); off += 4;
     for (let i = 0; i < input.signerPath.length; i++) {
       req.payload.writeUInt32LE(input.signerPath[i], off); off += 4;
     }
+
     // 1. Serialize the domain first
-    req.payload.writeUInt8(parseInt(data.domain.version)); off++;
-    req.payload.writeUInt32LE(parseInt(data.domain.chainId)); off++;
-    req.payload.writeUInt8(data.domain.name.length);
-    const domainNameBuf = Buffer.alloc(constants.ethMsgProtocol.ETH_TYPED_DATA.nameMaxLen);
-    Buffer.from(data.domain.name).copy(domainNameBuf);
-    domainNameBuf.copy(req.payload, off); off += domainNameBuf.length;
+    req.payload.writeUInt8(parseInt(data.domain.version), off); off++;
+    req.payload.writeUInt32LE(parseInt(data.domain.chainId), off); off += 4;
+    req.payload.writeUInt8(data.domain.name.length, off); off++;
+    const domainNameBuf = Buffer.from(data.domain.name);
+    if (domainNameBuf.length > T_CONST.domainNameMaxLen)
+      throw new Error(`Domain name cannot be larger than ${T_CONST.domainNameMaxLen} characters.`);
+    const fullDomainNameBuf = Buffer.alloc(T_CONST.domainNameMaxLen);
+    domainNameBuf.copy(fullDomainNameBuf);
+    fullDomainNameBuf.copy(req.payload, off); off += fullDomainNameBuf.length;
     const verifyingContract = ensureHexBuffer(data.domain.verifyingContract);
+    if (verifyingContract.length !== 20)
+      throw new Error(`Domain verifying contract must be a 20 byte address (got ${verifyingContract.length})`);
     verifyingContract.copy(req.payload, off); off += verifyingContract.length;
     // If there is a salt, record it. Create one otherwise.
     const saltBuf = Buffer.alloc(32);
-    if (Buffer.isBuffer(data.domain.salt)) {
+    if (Buffer.isBuffer(data.domain.salt) && data.domain.salt.length === 32) {
       saltBuf.copy(req.payload, off); off += 32;
     } else {
-      const saltPreImg = Buffer.concat([Buffer.from(new Date()), verifyingContract]);
+      const saltPreImg = Buffer.concat([Buffer.from(new Date().toString()), verifyingContract]);
       const salt = Buffer.from(keccak256(saltPreImg), 'hex');
       req.signTypedDataSalt = salt;
       salt.copy(req.payload, off); off += 32;
     }
-    // 2. Serialize the types
+
+    // 2. Reserve space for type/values offsets. Each value is a u16. We will write the offsets later
     const typesArr = Object.keys(data.types);
-    if (typesArr > constants.ethMsgProtocol.ETH_TYPED_DATA.customTypesMaxNum)
-      throw new Error(`Only a maximum of ${constants.ethMsgProtocol.ETH_TYPED_DATA.customTypesMaxNum} custom types are currently allowed.`)
-    req.payload.writeUInt8(Object.keys(data.types).length + 1); off++; // The 1 accounts for the primary type
+    const numCustomTypes = typesArr.length;
+    const typeOffsets = Buffer.alloc(2 * numCustomTypes);
+    // Write the number of custom types and move on to defining the types
+    req.payload.writeUInt8(numCustomTypes, off); off++;
+    const rawDataOff = off;
+
+    // 3. Serialize the types
+    let dataOff = 0; // Track where we are in the data buffer so we can write offsets
+    if (typesArr > T_CONST.customTypesMaxNum)
+      throw new Error(`Only a maximum of ${T_CONST.customTypesMaxNum} custom types are currently allowed.`)
+    
     // Start with the primary type and splice it
+    typeOffsets.writeUInt16LE(dataOff, 0);
     let serializedType = _serializeCustomType(req.payload, data, data.primaryType);
-    serializedType.copy(req.payload, off); off += serializedType.length;
+    serializedType.copy(req.payload, off); off += serializedType.length; 
+    dataOff += serializedType.length;
+    // Splice out the primary type since it cannot be referenced by lower types
     typesArr.splice(typesArr.indexOf(data.primaryType), 1);
-    // Now do the rest. It's fine that we spliced out the primary type because it is
-    // never designated as a subtype for any custom type.
+
+    // Now do the rest. Do not splice these, as they can theoretically reference each other.
     for (let i = 0; i < typesArr.length; i++) {
+      typeOffsets.writeUInt16LE(dataOff, 2*(i+1));
       serializedType = _serializeCustomType(req.payload, data, typesArr[i]);
-      serializedType.copy(req.payload, off); off += serializedType.length;
+      serializedType.copy(req.payload, off); off += serializedType.length; 
+      dataOff += serializedType.length;
     }
-    // 3. Serialize the values
+    // 4. Serialize the values
+    // First capture the starting index of the values in our data buffer
+    req.payload.writeUInt16LE(dataOff, off); off +=2;
+    // Now serialize and write the values themselves
     const serializedValues = _serializeValues(data, data.message);
     serializedValues.copy(req.payload, off); off += serializedValues.length;
-
+    if (off - rawDataOff > T_CONST.rawDataMaxLen)
+      throw new Error(`Type definitions + data is too large. Got ${off-rawDataOff} bytes; need <${T_CONST.rawDataMaxLen} bytes`);
     // Slice out the part of the buffer that we didn't use.
     req.payload = req.payload.slice(0, off);
     return req;
@@ -391,6 +417,8 @@ function _serializeCustomType(req, data, key) {
   // numSubTypes
   buf.writeUInt8(type.length, off); off++;
   // name of this type
+  if (key.length > constants.ethMsgProtocol.ETH_TYPED_DATA.nameMaxLen)
+    throw new Error(`Parameter names must be 12 characters or fewer (${key}=${key.length})`);
   buf.writeUInt16LE(key.length, off); off += 2;
   Buffer.from(key).copy(buf, off); off += Buffer.from(key).length;
   // Now write the sub types. These will usually be atomic/dynamic types but
@@ -416,33 +444,31 @@ function _serializeCustomType(req, data, key) {
     buf.writeUInt16LE(name.length, off); off += 2;
     name.copy(buf, off); off += name.length;
   })
-  if (off > _customTypeSz)
-    throw new Error(`Type ${key} too large. Name must be <20 char and only a max of 6 nested types are allowed.`)
   return buf.slice(0, off);
 }
 
 function _serializeValues(data, msg, currentType=null) {
-  console.log('-------')
-  console.log('currentType', currentType)
-  console.log('msg', msg)
+  // console.log('-------')
+  // console.log('currentType', currentType)
+  // console.log('msg', msg)
   let off = 0;
   // Allocate a big buffer. We will slice off the unused portion before returning.
   const buf = Buffer.alloc(constants.ethMsgProtocol.ETH_TYPED_DATA.rawDataMaxLen);
   const subMsg = currentType === null ? msg : msg[currentType.name];
-  console.log('subMsg', subMsg)
+  // console.log('subMsg', subMsg)
   const type = currentType === null ? data.types[data.primaryType] : data.types[currentType.type];
   const customTypesArr = Object.keys(data.types);
-  console.log('type', type)
+  // console.log('type', type)
   type.forEach((subType) => {
-    console.log('subType', subType)
+    // console.log('subType', subType)
     // If this is a custom type we recursively serialize that nested object first
     if (customTypesArr.indexOf(subType.type) > -1) {
-      console.log('this is a defined subtype')
+      // console.log('this is a defined subtype')
       const subBuf = _serializeValues(data, subMsg[subType.name], subType);
       subBuf.copy(buf, off); off += subBuf.length;
     } else {
       // Otherwise we encode this object based on the order of subTypes
-      console.log('encoding', subType.type, msg[subType.name])
+      // console.log('encoding', subType.type, msg[subType.name])
       const encVal = _encodeTypeValue(subType.type, msg[subType.name]);
       encVal.copy(buf, off); off += encVal.length;
     }

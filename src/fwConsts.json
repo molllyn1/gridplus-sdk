@@ -3,7 +3,7 @@
     "encMsgSz": {
       "req": {
         "extraDataSz": 5,
-        "sign": 1683
+        "sign": 1688
       },
       "res": {
         "extraDataSz": 69,

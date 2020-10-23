@@ -136,15 +136,16 @@ const signingSchema = {
 
 const ethMsgProtocol = {
     SIGN_PERSONAL: {
-        enumIdx: 0,           // Enum index of this protocol in Lattice firmware
+        enumIdx: 0,             // Enum index of this protocol in Lattice firmware
     },
     ETH_TYPED_DATA: {
-        enumIdx: 1,           // Enum index of this protocol in Lattice firmware
-        nameMaxLen: 20,       // Max number of characters for param name
-        rawDataMaxLen: 1024,  // Max size of raw data payload in bytes
-        subTypesMaxNum: 6,    // Number of subTypes that may be included in a custom type
-        customTypesMaxNum: 3, // Max number of custom types in message (*including* primaryType)
-        typeCodes: {          // Enum indices of data types in Lattice firmware
+        enumIdx: 1,             // Enum index of this protocol in Lattice firmware
+        nameMaxLen: 12,         // Max number of characters for param name
+        domainNameMaxLen: 20,   // Max number of characters for a domain name
+        rawDataMaxLen: 1550,    // Max size of raw data payload in bytes
+        subTypesMaxNum: 10,     // Number of subTypes that may be included in a custom type
+        customTypesMaxNum: 10,  // Max number of custom types in message (*including* primaryType)
+        typeCodes: {            // Enum indices of data types in Lattice firmware
             'bytes1': 0,
             'bytes32': 1,
             'uint8': 2,
