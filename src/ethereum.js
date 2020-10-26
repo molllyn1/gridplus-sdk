@@ -492,23 +492,42 @@ function _serializeValues(data, msg, currentType=null) {
 
 function _encodeTypeValue(type, msg) {
   let buf;
+  // Handle fixed size bytes (can be 1-32 bytes)
+  if (type.slice(0, 5) === 'bytes') {
+    msg = ensureHexBuffer(msg);
+    const n = parseInt(type.slice(5));
+    if (n < 1 || n > 32)
+      throw new Error('Only bytes1-bytes32 are supported.');
+    if (msg.length !== n)
+      throw new Error(`${type} provided, but got message of size ${msg.length}`);
+    buf = Buffer.alloc(n);
+    msg.copy(buf);
+    return buf;
+  }
   switch (type) {
-    case 'bytes1':
-      buf = Buffer.alloc(1);
-      msg.copy(buf);
-      return buf;
     case 'uint8':
     case 'int8':
       buf = Buffer.alloc(1);
       Buffer.from([msg]).copy(buf);
       return buf;
+    case 'uint16':
+    case 'int16':
+      buf = Buffer.alloc(2);
+      Buffer.from([msg]).copy(buf);
+      return buf;
+    case 'uint32':
+    case 'int32':
+      buf = Buffer.alloc(4);
+      Buffer.from([msg]).copy(buf);
+      return buf;
+    case 'uint64':
+    case 'int64':
+      buf = Buffer.alloc(8);
+      Buffer.from([msg]).copy(buf);
+      return buf;
     case 'bool':
       buf = Buffer.alloc(1);
       Buffer.from([msg === true ? 1 : 0]).copy(buf);
-      return buf;
-    case 'bytes32':
-      buf = Buffer.alloc(32);
-      msg.copy(buf);
       return buf;
     case 'uint256':
     case 'int256':
