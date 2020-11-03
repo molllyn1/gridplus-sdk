@@ -135,9 +135,11 @@ const signingSchema = {
 
 const ethMsgProtocol = {
     SIGN_PERSONAL: {
+        str: 'signPersonal',
         enumIdx: 0,             // Enum index of this protocol in Lattice firmware
     },
     EIP712: {
+        str: 'eip712',
         enumIdx: 1,
         rawDataMaxLen: 1629,    // Max size of raw data payload in bytes
         typeCodes: {            // Enum indices of data types in Lattice firmware

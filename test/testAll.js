@@ -14,60 +14,6 @@ describe('Connect and Pair', () => {
     if (process.env.DEVICE_ID)
       id = process.env.DEVICE_ID;
   });
-/*
-  it('TEST Should build a message', async (done) => {
-    const typedData = {
-      types: {
-        EIP712Domain: [
-          { name: 'name', type: 'string' },
-          { name: 'version', type: 'string' },
-          { name: 'chainId', type: 'uint256' },
-          { name: 'verifyingContract', type: 'address' }
-        ],
-        Person: [
-          { name: 'name', type: 'string' },
-          { name: 'wallet', type: 'address' }
-        ],
-        Mail: [
-          { name: 'from', type: 'Person' },
-          { name: 'to', type: 'Person' },
-          { name: 'contents', type: 'string' }
-        ]
-      },
-      primaryType: 'Mail',
-      domain: {
-        name: 'Ether Mail',
-        version: '1',
-        chainId: 1,
-        verifyingContract: '0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC'
-      },
-      message: {
-        from: {
-          name: 'Cow',
-          wallet: '0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826'
-        },
-        to: {
-          name: 'Bob',
-          wallet: '0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB'
-        },
-        contents: 'Hello, Bob!'
-      }
-    };
-    const req = {
-      currency: 'ETH_MSG',
-      data: {
-        signerPath: [helpers.BTC_LEGACY_PURPOSE, helpers.ETH_COIN, HARDENED_OFFSET, 0, 0],
-        protocol: 'signTypedData',
-        payload: typedData,
-      }
-    }
-    client.sign(req, (err, data) => {
-      console.log('err', err)
-      console.log('data', data)
-      done()
-    })
-  })
-*/
  
   //-------------------------------------------
   // TESTS
@@ -110,6 +56,76 @@ describe('Connect and Pair', () => {
     }
   });
 
+  it('TEST Should build a message', async () => {
+    
+    const typedData = {
+      types: {
+        EIP712Domain: [
+          { name: 'name', type: 'string' },
+          { name: 'version', type: 'string' },
+          { name: 'chainId', type: 'uint256' },
+          { name: 'verifyingContract', type: 'address' }
+        ],
+        Person: [
+          { name: 'name', type: 'string' },
+          { name: 'wallet', type: 'address' }
+        ],
+        Mail: [
+          { name: 'from', type: 'Person' },
+          { name: 'to', type: 'Person' },
+          { name: 'contents', type: 'string' }
+        ]
+      },
+      primaryType: 'Mail',
+      domain: {
+        name: 'Ether Mail',
+        version: '1',
+        chainId: 12,
+        verifyingContract: '0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC'
+      },
+      message: {
+        from: {
+          name: 'Cow',
+          wallet: '0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826'
+        },
+        to: {
+          name: 'Bob',
+          wallet: '0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB'
+        },
+        contents: 'foobar'
+      }
+    };
+    
+
+    // noname: this is my name
+    // fooSub1: something
+/*
+    const typedData = {
+      types: {
+        FooSub: [ { name: 'fooSub1', type: 'string' }],
+        Foo: [ { name: 'noname', type: 'string' }, { name: 'something', type: 'FooSub' } ]
+      },
+      message: {
+        noname: 'this is my name',
+        something: {
+          fooSub1: 'my sub'
+        }
+      },
+      primaryType: 'Foo',
+    };
+*/
+    const req = {
+      currency: 'ETH_MSG',
+      data: {
+        signerPath: [helpers.BTC_LEGACY_PURPOSE, helpers.ETH_COIN, HARDENED_OFFSET, 0, 0],
+        protocol: 'eip712',
+        payload: typedData,
+      }
+    }
+    let tx = await helpers.sign(client, req);
+    console.log(tx)
+  })
+/*
   it('Should get addresses', async () => {
     expect(caughtErr).to.equal(false);
     if (caughtErr === false) {
@@ -347,5 +363,5 @@ describe('Connect and Pair', () => {
     expect(sigResp.tx).to.not.equal(null);
     expect(sigResp.txHash).to.not.equal(null);
   });
-
+*/
 });

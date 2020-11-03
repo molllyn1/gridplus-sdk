@@ -56,8 +56,8 @@ function buildRandomTxData() {
   }
 }
 
-function buildRandomMsg(type='signPersonal') {
-  if (type === 'signPersonal') {
+function buildRandomMsg(type=constants.ethMsgProtocol.SIGN_PERSONAL.str) {
+  if (type === constants.ethMsgProtocol.SIGN_PERSONAL.str) {
     // A random string will do
     const isHexStr = Math.random() > 0.5;
     const L = Math.floor(Math.random() * constants.ETH_MSG_MAX_SIZE);
@@ -324,7 +324,7 @@ describe('Test random ETH messages', function() {
   })
 
   it.each(randomTxDataLabels, 'Msg: sign_personal #%s', ['label'], async function(n, next) {
-    const protocol = 'signPersonal';
+    const protocol = constants.ethMsgProtocol.SIGN_PERSONAL.str;
     const payload = buildRandomMsg(protocol);
     try {
       await testMsg(buildMsgReq(payload, protocol))
@@ -335,7 +335,7 @@ describe('Test random ETH messages', function() {
   })
 
   it('Msg: sign_personal boundary conditions', async () => {
-    const protocol = 'signPersonal';
+    const protocol = constants.ethMsgProtocol.SIGN_PERSONAL.str;
     const maxValid = `0x${crypto.randomBytes(constants.ETH_MSG_MAX_SIZE).toString('hex')}`;
     const minInvalid = `0x${crypto.randomBytes(constants.ETH_MSG_MAX_SIZE + 1).toString('hex')}`;
     const zeroInvalid = '0x';

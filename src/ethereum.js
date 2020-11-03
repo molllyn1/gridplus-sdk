@@ -3,6 +3,7 @@
 const Buffer = require('buffer/').Buffer
 const constants = require('./constants');
 const cbor = require('cbor-js');
+const eip712 = require('eip-712')
 const keccak256 = require('js-sha3').keccak256;
 const rlp = require('rlp-browser');
 const secp256k1 = require('secp256k1');
@@ -19,9 +20,9 @@ exports.buildEthereumMsgRequest = function(input) {
 
   try {
     switch (input.protocol) {
-      case 'signPersonal':
+      case constants.ethMsgProtocol.SIGN_PERSONAL.str:
         return buildPersonalSignRequest(req, input);
-      case 'eip712':
+      case constants.ethMsgProtocol.EIP712.str:
         return buildEIP712Request(req, input);
       default:
         return { err: 'Unsupported protocol' }
@@ -34,15 +35,27 @@ exports.buildEthereumMsgRequest = function(input) {
 exports.validateEthereumMsgResponse = function(res, req) {
   const { signer, sig } = res;
   const { input, msg } = req;
-  if (input.protocol === 'signPersonal') {
-    const prefix = Buffer.from(
-      `\u0019Ethereum Signed Message:\n${msg.length.toString()}`,
-      'utf-8',
-    );
-    return addRecoveryParam(Buffer.concat([prefix, msg]), sig, signer)
-  } else {
-    throw new Error('Unsupported protocol');
+  try {
+    if (input.protocol === constants.ethMsgProtocol.SIGN_PERSONAL.str) {
+      const prefix = Buffer.from(
+        `\u0019Ethereum Signed Message:\n${msg.length.toString()}`,
+        'utf-8',
+      );
+      return addRecoveryParam(Buffer.concat([prefix, msg]), sig, signer)
+    } 
+    else if (input.protocol === constants.ethMsgProtocol.EIP712.str) {
+      console.log('input', input)
+      const expectedMsg = eip712.getMessage(input.payload);
+      console.log('expectedMsg', expectedMsg)
+      return addRecoveryParam(expectedMsg, sig, signer)
+    }
+    else {
+      throw new Error('Unsupported protocol');
+    }
+  } catch (err) {
+    throw new Error(`Error validating ETH message response: ${err.toString()}`)
   }
+
 }
 
 exports.buildEthereumTxRequest = function(data) {
@@ -328,7 +341,7 @@ function buildPersonalSignRequest(req, input) {
 function buildEIP712Request(req, input) {
   try {
     const EIP712_CONST = constants.ethMsgProtocol.EIP712;
-    const data = input.payload;
+    const data = JSON.parse(JSON.stringify(input.payload));
     if (!data.primaryType || !data.types[data.primaryType])
       throw new Error('primaryType must be specified and the type must be included.')
     if (!data.message || !data.domain)
