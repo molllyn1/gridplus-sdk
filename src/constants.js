@@ -200,6 +200,8 @@ const ETH_DATA_MAX_SIZE = 1024; // Maximum number of bytes that can go in the da
 const ETH_MSG_MAX_SIZE = 1024; // Maximum number of bytes that can be used in a message signing request
 const REQUEST_TYPE_BYTE = 0x02; // For all HSM-bound requests
 const HARDENED_OFFSET = 0x80000000; // Hardened offset
+const HANDLE_LARGER_CHAIN_ID = 255; // ChainId value to signify larger chainID is in data buffer
+const MAX_CHAIN_ID_BYTES = 8; // Max number of bytes to contain larger chainID in data buffer
 
 const BASE_URL = 'https://signing.gridpl.us';
 
@@ -221,4 +223,6 @@ module.exports = {
     REQUEST_TYPE_BYTE,
     HARDENED_OFFSET,
     FIRMWARE_STRUCTS,
+    HANDLE_LARGER_CHAIN_ID,
+    MAX_CHAIN_ID_BYTES,
 }
