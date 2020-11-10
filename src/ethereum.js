@@ -3,7 +3,7 @@
 const BN = require('bignumber.js');
 const Buffer = require('buffer/').Buffer
 const constants = require('./constants');
-const cbor = require('cbor-js');
+const cbor = require('cbor');
 const eip712 = require('eip-712')
 const keccak256 = require('js-sha3').keccak256;
 const rlp = require('rlp-browser');
@@ -467,8 +467,9 @@ function parseEIP712Item(data, type) {
     if (data.length !== 20)
       throw new Error(`Address type must be 20 bytes, but got ${data.length} bytes`);
   } else if (type === 'uint256') {
-    // Uint256 needs to be cast to a buffer so we can parse it properly in firmware
-    data = ensureHexBuffer(data)
+    // Uint256s should be encoded as bignums. These will get tagged by cbor.js
+    // and can get marked up properly by firmware.
+    data = new BN(ensureHexBuffer(data), 'hex')
   } else if (type === 'bool') {
     // Booleans need to be cast to a u8
     data = data === true ? 1 : 0;
