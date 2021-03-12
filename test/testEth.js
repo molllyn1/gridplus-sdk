@@ -181,8 +181,82 @@ describe('Setup client', () => {
     // Build the random transactions
     buildRandomTxData();
   });
-})
 
+  it('TEST Should build a message', async () => {
+
+    const typedData = {
+      types: {
+        EIP712Domain: [
+          { name: 'name', type: 'string' },
+          { name: 'version', type: 'string' },
+          { name: 'chainId', type: 'uint256' },
+          { name: 'verifyingContract', type: 'address' }
+        ],
+        Person: [
+          { name: 'name', type: 'string' },
+          { name: 'wallet', type: 'address' }
+        ],
+        Mail: [
+          { name: 'from', type: 'Person' },
+          { name: 'to', type: 'Person' },
+          { name: 'contents', type: 'string' }
+        ]
+      },
+      primaryType: 'Mail',
+      domain: {
+        name: 'Ether Mail',
+        version: '1',
+        chainId: 12,
+        verifyingContract: '0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC'
+      },
+      message: {
+        from: {
+          name: 'Cow',
+          wallet: '0xCD2a3d9F938E13CD947Ec05AbC7FE734Df8DD826'
+        },
+        to: {
+          name: 'Bob',
+          wallet: '0xbBbBBBBbbBBBbbbBbbBbbbbBBbBbbbbBbBbbBBbB'
+        },
+        contents: 'foobar'
+      }
+    };
+
+
+    // noname: this is my name
+    // fooSub1: something
+/*
+    const typedData = {
+      types: {
+        FooSub: [ { name: 'fooSub1', type: 'string' }],
+        Foo: [ { name: 'noname', type: 'string' }, { name: 'something', type: 'FooSub' } ]
+      },
+      message: {
+        noname: 'this is my name',
+        something: {
+          fooSub1: 'my sub'
+        }
+      },
+      primaryType: 'Foo',
+    };
+*/
+    const req = {
+      currency: 'ETH_MSG',
+      data: {
+        signerPath: [helpers.BTC_LEGACY_PURPOSE, helpers.ETH_COIN, HARDENED_OFFSET, 0, 0],
+        protocol: 'signTyped',
+        payload: typedData,
+      }
+    }
+    try {
+      let tx = await helpers.sign(client, req);
+      console.log(tx)
+    } catch (err) {
+      console.error(err)
+    }
+  })
+})
+/*
 if (!process.env.skip) {
   describe('Test ETH Tx Params', () => {
     beforeEach(() => {
@@ -467,3 +541,4 @@ describe('Test ETH personalSign', function() {
     await testMsg(buildMsgReq(zeroInvalid, protocol), false);
   })
 })
+*/
