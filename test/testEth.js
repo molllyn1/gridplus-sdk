@@ -212,7 +212,7 @@ describe('Setup client', () => {
     buildRandomTxData(fwConstants);
   });
 })
-
+/*
 if (!process.env.skip) {
   describe('Test ETH Tx Params', () => {
     beforeEach(() => {
@@ -440,6 +440,7 @@ if (!process.env.skip) {
 
   });
 }
+*/
 /*
 describe('Test random transaction data', function() {
   beforeEach(() => {
