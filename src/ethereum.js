@@ -502,19 +502,22 @@ function buildEIP712Request(req, input) {
   try {
     const TYPED_DATA = constants.ethMsgProtocol.TYPED_DATA;
     const data = JSON.parse(JSON.stringify(input.payload));
+/*
     if (!data.primaryType || !data.types[data.primaryType])
       throw new Error('primaryType must be specified and the type must be included.')
     if (!data.message || !data.domain)
       throw new Error('message and domain must be specified.')
     if (0 > Object.keys(data.types).indexOf('EIP712Domain'))
       throw new Error('EIP712Domain type must be defined.')
+*/  
     // Parse the payload to ensure we have valid EIP712 data types and that
     // they are encoded such that Lattice firmware can parse them.
     // We need two different encodings:
     // 1. Use `ethers` BigNumber when building the request to be validated by ethers-eip712.
     //    Make sure we use a copy of the data to avoid mutation problems
+/*
     input.payload.message = parseEIP712Msg( JSON.parse(JSON.stringify(data.message)), 
-                                            JSON.parse(JSON.stringify(data.primaryType)), 
+                                            JSON.parse(JSON.stringify(data.primaryTypeFOOBARFIZZBUZZ)), 
                                             JSON.parse(JSON.stringify(data.types)), 
                                             true);
     input.payload.domain = parseEIP712Msg( JSON.parse(JSON.stringify(data.domain)), 
@@ -524,9 +527,12 @@ function buildEIP712Request(req, input) {
     // 2. Use `bignumber.js` for the request going to the Lattice, since it's the required
     //    BigNumber lib for `cbor`, which we use to encode the request data to the Lattice.
     data.domain = parseEIP712Msg(data.domain, 'EIP712Domain', data.types, false);
-    data.message = parseEIP712Msg(data.message, data.primaryType, data.types, false);
+    data.message = parseEIP712Msg(data.message, data.primaryTypeFOOBARFIZZBUZZ, data.types, false);
+*/
     // Now build the message to be sent to the Lattice
+    console.log('cbor encoding', data) 
     const buf = Buffer.from(cbor.encode(data));
+    console.log('encoded', cbor.encode(data).toString('hex'))
     if (buf.length > TYPED_DATA.rawDataMaxLen)
       throw new Error(`Message too big (max ${TYPED_DATA.rawDataMaxLen} bytes, got ${buf.length}`);
     // Build the buffer
@@ -543,7 +549,7 @@ function buildEIP712Request(req, input) {
     req.payload = req.payload.slice(0, off);
     return req;
   } catch (err) {
-    return { err: `Failed to build EIP712 request: ${err.message}` };
+    return { err: `Failed to parse EIP712 message: ${err.message}` };
   }
 }
 
@@ -559,7 +565,7 @@ function parseEIP712Msg(msg, typeName, types, isEthers=false) {
       }
     })
   } catch (err) {
-    throw new Error(`Failed to parse EIP712 struct: ${err.toString()}`);
+    throw new Error(err.message);
   }
   return msg;
 }
@@ -572,8 +578,10 @@ function parseEIP712Item(data, type, isEthers=false) {
     // Fixed sizes bytes need to be buffer type. We also add some sanity checks.
     const nBytes = parseInt(type.slice(5));
     data = ensureHexBuffer(data);
-    if (data.length !== nBytes)
-      throw new Error(`Expected ${type} type, but got ${nBytes} bytes`);
+    if (data.length !== nBytes) {
+      console.log(nBytes, data)
+      throw new Error(`Expected ${type} type, but got ${data.length} bytes`);
+    }
   } else if (type === 'address') {
     // Address must be a 20 byte buffer
     data = ensureHexBuffer(data);

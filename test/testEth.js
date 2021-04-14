@@ -634,6 +634,9 @@ describe('Test ETH EIP712', function() {
           { name: 'chainId', type: 'uint256' },
           { name: 'verifyingContract', type: 'address' }
         ],
+        Qasset: [
+          { name: 'foo', type: 'bool' },
+        ],
         Wallet: [
           { name: 'address', type: 'address' },
           { name: 'balance', type: 'Balance' },
@@ -643,9 +646,10 @@ describe('Test ETH EIP712', function() {
           { name: 'wallet', type: 'Wallet' }
         ],
         Mail: [
+          { name: 'asset', type: 'Qasset' },
           { name: 'from', type: 'Person' },
           { name: 'to', type: 'Person' },
-          { name: 'contents', type: 'string' }
+          { name: 'contents', type: 'string' },
         ],
         Balance: [
           { name: 'value', type: 'uint256' },
@@ -660,6 +664,9 @@ describe('Test ETH EIP712', function() {
         verifyingContract: '0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC'
       },
       message: {
+        asset: {
+          foo: true
+        },
         from: {
           name: 'Cow',
           wallet: {
@@ -697,7 +704,7 @@ describe('Test ETH EIP712', function() {
       expect(err).to.equal(null)
     }
   })
-
+ 
   it('Should test canonical EIP712 example with 3rd level nesting and params in a different order', async () => {
     const msg = {
       types: {
@@ -770,7 +777,6 @@ describe('Test ETH EIP712', function() {
       expect(err).to.equal(null)
     }
   })
-*/
 
   it('Should test a bunch of EIP712 data types', async () => {
     const msg = {
@@ -857,16 +863,260 @@ describe('Test ETH EIP712', function() {
     }
   })
 
-  // it.each(randomTxDataLabels, 'Msg: EIP712 #%s', ['label'], async function(n, next) {
-  //   const protocol = 'eip712';
-  //   const payload = buildRandomMsg(protocol);
-  //   console.log('payload', JSON.stringify(payload, null, 2))
-  //   try {
-  //     await testMsg(buildMsgReq(payload, protocol))
-  //     setTimeout(() => { next() }, 2500);
-  //   } catch (err) {
-  //     setTimeout(() => { next(err) }, 2500);
-  //   }
-  // })
+  it('Should test a payload with multiple custom types', async () => {
+    const payload = {
+      'types': {
+        'EIP712Domain': [
+          {
+            'name': 'name',
+            'type': 'string'
+          },
+          {
+            'name': 'version',
+            'type': 'string'
+          },
+          {
+            'name': 'chainId',
+            'type': 'uint256'
+          },
+          {
+            'name': 'verifyingContract',
+            'type': 'address'
+          }
+        ],
+        'Primary_Cave': [
+          {
+            'name': 'scientific',
+            'type': 'Program'
+          },
+          {
+            'name': 'he',
+            'type': 'Father'
+          },
+        ],
+        'Program': [
+          {
+            'name': 'may',
+            'type': 'bytes3'
+          },
+          {
+            'name': 'aid',
+            'type': 'string'
+          }
+        ],
+        'Father': [
+          {
+            'name': 'surrounded',
+            'type': 'bytes'
+          },
+          {
+            'name': 'driven',
+            'type': 'bytes2'
+          }
+        ],
+      },
+      'primaryType': 'Primary_Cave',
+      'domain': {
+        'name': 'Domain_Sent',
+        'version': '1',
+        'chainId': 270,
+        'verifyingContract': '0xe2b818aa5a616be9cdc5c723def863e54405a241'
+      },
+      'message': {
+        'scientific': {
+          'may': '0x0349b8',
+          'aid': 'discussion threw thing bowl'
+        },
+        'he': {
+          'surrounded': '0x523437bad397ccea',
+          'driven': '0x77d9'
+        },
+      }
+    }
+    try {
+      await testMsg(buildMsgReq(payload, 'eip712'))
+    } catch (err) {
+      expect(err).to.equal(null)
+    }
+  })
+
+  it('Should test a payload with nested custom types', async () => {
+    const payload = {
+      'types': {
+        'EIP712Domain': [
+          {
+            'name': 'name',
+            'type': 'string'
+          },
+          {
+            'name': 'version',
+            'type': 'string'
+          },
+          {
+            'name': 'chainId',
+            'type': 'uint256'
+          },
+          {
+            'name': 'verifyingContract',
+            'type': 'address'
+          }
+        ],
+        'Primary_Cave': [
+          {
+            'name': 'scientific',
+            'type': 'Program'
+          },
+        ],
+        'Program': [
+          {
+            'name': 'may',
+            'type': 'Father'
+          },
+          {
+            'name': 'aid',
+            'type': 'string'
+          }
+        ],
+        'Father': [
+          {
+            'name': 'surrounded',
+            'type': 'bytes'
+          },
+          {
+            'name': 'driven',
+            'type': 'bytes2'
+          }
+        ],
+      },
+      'primaryType': 'Primary_Cave',
+      'domain': {
+        'name': 'Domain_Sent',
+        'version': '1',
+        'chainId': 270,
+        'verifyingContract': '0xe2b818aa5a616be9cdc5c723def863e54405a241'
+      },
+      'message': {
+        'scientific': {
+          'may': {
+            'surrounded': '0x523437bad397ccea',
+            'driven': '0x77d9'
+          },
+          'aid': 'discussion threw thing bowl'
+        },
+      }
+    }
+    try {
+      await testMsg(buildMsgReq(payload, 'eip712'))
+    } catch (err) {
+      expect(err).to.equal(null)
+    }
+  })
+*/
+
+
+  it.each(randomTxDataLabels, 'Msg: EIP712 #%s', ['label'], async function(n, next) {
+    // const payload = buildRandomMsg('eip712');
+//     const payload = {
+//   "types": {
+//     "EIP712Domain": [
+//       {
+//         "name": "name",
+//         "type": "string"
+//       },
+//       {
+//         "name": "version",
+//         "type": "string"
+//       },
+//       {
+//         "name": "chainId",
+//         "type": "uint256"
+//       },
+//       {
+//         "name": "verifyingContract",
+//         "type": "address"
+//       }
+//     ],
+//     "Fooain_Abandon_distance_esc": [
+//       /*{
+//         "name": "fun_blind_only_raw_g",
+//         "type": "Fiscal_permit_ten_to"
+//       },
+//       {
+//         "name": "demand_local_wave_ri",
+//         "type": "Fever_scissors_boat_"
+//       },
+//       {
+//         "name": "trust_chimney_social",
+//         "type": "Menu_drama_soup_nut_"
+//       },
+//       {
+//         "name": "student_document_spe",
+//         "type": "bytes11"
+//       },
+//       */
+//       {
+//         "name": "picture_dove_fence_u",
+//         "type": "uint32"
+//       }
+//     ],
+//     /*
+//     "Fiscal_permit_ten_to": [
+//       {
+//         "name": "amazing_tuition_civi",
+//         "type": "bytes18"
+//       }
+//     ],
+//     "Fever_scissors_boat_": [
+//       {
+//         "name": "net_hurt_lobster_wei",
+//         "type": "bytes9"
+//       }
+//     ],
+//     "Menu_drama_soup_nut_": [
+//       {
+//         "name": "allow_uniform_glad_p",
+//         "type": "bytes24"
+//       },
+//       {
+//         "name": "panel_balance_quantu",
+//         "type": "bytes6"
+//       }
+//     ]
+//     */
+//   },
+//   "primaryTypeFOOBARFIZZBUZZ": "Fooain_Abandon_distance_esc",
+//   "domain": {
+//     "name": "Domain_Abandon_distance_esc",
+//     "version": "1",
+//     "chainId": "0x2ded",
+//     "verifyingContract": "0x43f98f3e5e935a1c15d05dd8c0dcdc17529cf931"
+//   },
+//   "message": {
+//     // "fun_blind_only_raw_g": {
+//     //   "amazing_tuition_civi": "0x1506400a8f76c86a1e93e69a04cae9d478c2",
+//     // },
+//     // "demand_local_wave_ri": {
+//     //   "net_hurt_lobster_wei": "0x9c5a1790fc51f8aec7",
+//     // },
+//     // "trust_chimney_social": {
+//     //   "allow_uniform_glad_p": "0x4506ce86aa2c627329c94b748ad5aab709ab7f4236ee7098",
+//     //   "panel_balance_quantu": "0x32d32ae81a23",
+//     // },
+//     // "student_document_spe": "0xcaf3ede5568a5994595994",
+//     "picture_dove_fence_u": 8861790
+//   }
+// }
+    const payload = {
+      "primaryTypeFOOBARFIZZBUZZ": "Fooain_Abandon_distance_esc"
+    }
+
+    try {
+      await testMsg(buildMsgReq(payload, 'eip712'))
+      setTimeout(() => { next() }, 500);
+    } catch (err) {
+      console.log(JSON.stringify(payload, null, 2))
+      setTimeout(() => { next(err) }, 500);
+    }
+  })
 
 })
